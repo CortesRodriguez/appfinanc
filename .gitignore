@@ -1,0 +1,28 @@
+# Bytecode y cache de Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Logs generados en runtime (trazabilidad)
+logs/
+
+# Config y secretos locales
+.env
+*.local
+
+# Artefactos del editor
+.vscode/
+.idea/
+.DS_Store
+
+# Copias del anteproyecto (no ensuciar el repo con el .docx)
+*.docx
+*.pdf
+
+# Herramientas de sesion
+.claude/
