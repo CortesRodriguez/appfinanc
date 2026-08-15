@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesion{% endblock %}
+{% block content %}
+<section class="tarjeta">
+    <h1>Iniciar sesion</h1>
+    <form method="post">
+        <label>
+            Correo electronico
+            <input type="email" name="email" value="{{ email or '' }}" required>
+        </label>
+        <label>
+            Contraseña
+            <input type="password" name="password" required>
+        </label>
+        <button type="submit" class="btn-primario">Entrar</button>
+    </form>
+    <p>¿No tienes cuenta? <a href="{{ url_for('auth.registro') }}">Crea una aqui</a>.</p>
+</section>
+{% endblock %}

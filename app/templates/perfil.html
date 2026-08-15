@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Mi perfil{% endblock %}
+{% block content %}
+<section class="perfil">
+    <h1>Mi perfil</h1>
+    <p class="perfil__nivel">Nivel de detalle asignado: <strong>{{ resumen.perfil.nivel_detalle }}</strong></p>
+
+    <div class="perfil__tarjetas">
+        <div class="tarjeta">
+            <h2>Total de consultas</h2>
+            <p class="tarjeta__grande">{{ resumen.total_consultas }}</p>
+        </div>
+        <div class="tarjeta">
+            <h2>Indicador que mas has regenerado</h2>
+            <p class="tarjeta__grande">
+                {% if resumen.indicador_mas_regenerado %}
+                    {{ resumen.indicador_mas_regenerado }}
+                {% else %}
+                    Aun no hay datos suficientes.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if resumen.instrumentos_mas_consultados %}
+    <div class="tarjeta">
+        <h2>Instrumentos mas consultados</h2>
+        <ol>
+            {% for ticker, veces in resumen.instrumentos_mas_consultados %}
+                <li>{{ ticker }} · {{ veces }} consulta(s)</li>
+            {% endfor %}
+        </ol>
+    </div>
+    {% endif %}
+
+    {% if resumen.explicacion_dificil %}
+    <div class="tarjeta">
+        <h2>Explicacion del indicador que mas te ha costado</h2>
+        <p><strong>{{ resumen.explicacion_dificil.indicador }}</strong> · valor {{ '%.2f' | format(resumen.explicacion_dificil.valor) }}</p>
+        <p>{{ resumen.explicacion_dificil.texto }}</p>
+        <small>Origen: {{ resumen.explicacion_dificil.origen }} (RF-14.5)</small>
+    </div>
+    {% endif %}
+
+    {% if resumen.ofrecer_encuesta %}
+    <div class="aviso">
+        Has realizado {{ resumen.total_consultas }} consultas y aceptaste participar de la evaluacion.
+        <a class="btn-primario" href="{{ url_for('perfil.encuesta') }}">Responder encuesta</a>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

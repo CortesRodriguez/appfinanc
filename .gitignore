@@ -20,6 +20,9 @@ logs/
 .idea/
 .DS_Store
 
+# Base de datos local generada por Flask
+instance/
+
 # Copias del anteproyecto (no ensuciar el repo con el .docx)
 *.docx
 *.pdf

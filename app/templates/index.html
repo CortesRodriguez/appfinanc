@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Consultar indicador{% endblock %}
+{% block content %}
+<section class="hero">
+    <h1>Entiende tus indicadores financieros</h1>
+    <p>Elige una accion del IPSA, un indicador y te contamos, en lenguaje simple, que significa el numero que estas viendo.</p>
+</section>
+
+{% if not usuario %}
+<div class="aviso">
+    <p>Para consultar un indicador necesitas <a href="{{ url_for('auth.login') }}">iniciar sesion</a> o <a href="{{ url_for('auth.registro') }}">crear una cuenta</a>.</p>
+</div>
+{% else %}
+<form class="formulario" method="post" action="{{ url_for('main.consulta') }}" id="form-consulta">
+    <label>
+        Instrumento
+        <select name="ticker" required>
+            {% for ticker, nombre in tickers.items() %}
+                <option value="{{ ticker }}">{{ nombre }} ({{ ticker }})</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        Rango temporal
+        <select name="rango" required>
+            {% for r in rangos %}
+                <option value="{{ r }}" {% if r == "3 meses" %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>
+        Indicador
+        <select name="indicador" required>
+            <option value="rsi">RSI (fuerza relativa)</option>
+            <option value="volatilidad">Volatilidad</option>
+            <option value="media_movil">Medias moviles</option>
+            <option value="rentabilidad">Rentabilidad</option>
+        </select>
+    </label>
+    <button type="submit">Consultar</button>
+</form>
+
+<!-- RF-08.3: indicador de carga -->
+<div id="spinner" class="spinner" hidden>
+    <div class="spinner__aro"></div>
+    <p>Generando explicacion…</p>
+</div>
+
+{% if historial %}
+<section class="historial">
+    <h2>Historial reciente</h2>
+    <ul>
+        {% for h in historial %}
+            <li>
+                <strong>{{ h.ticker }}</strong> · {{ h.indicador }} · {{ h.rango }}
+                <span class="historial__fecha">{{ h.fecha_hora }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

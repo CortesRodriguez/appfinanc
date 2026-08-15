@@ -2,3 +2,13 @@ yfinance>=0.2.40
 pandas>=2.0
 numpy>=1.24
 requests>=2.31
+
+# Sprint 7-9: Presentador Flask + Autenticacion
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+Flask-Bcrypt>=1.0
+Flask-JWT-Extended>=4.6
+
+# Sprint 6: FinBERT opcional (si se instala, el procesador lo detecta y lo usa)
+# transformers>=4.40
+# torch>=2.0

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Glosario financiero{% endblock %}
+{% block content %}
+<section class="glosario">
+    <h1>Glosario financiero</h1>
+    <form method="get" class="glosario__buscador">
+        <input type="search" name="q" value="{{ consulta }}" placeholder="Buscar termino...">
+        <button type="submit" class="btn-primario">Buscar</button>
+    </form>
+    {% if consulta and not resultados %}
+        <p>No se encontraron resultados para "{{ consulta }}".</p>
+    {% endif %}
+    <dl>
+        {% for termino, definicion in resultados %}
+            <dt>{{ termino.title() }}</dt>
+            <dd>{{ definicion }}</dd>
+        {% endfor %}
+    </dl>
+</section>
+{% endblock %}
