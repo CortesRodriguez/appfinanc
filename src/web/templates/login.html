@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Iniciar sesión — appfint{% endblock %}
+
+{% block content %}
+<h1>Iniciar sesión</h1>
+
+<form id="login-form" class="card">
+  <div class="field">
+    <label for="email">Correo electrónico</label>
+    <input type="email" id="email" name="email" required>
+  </div>
+  <div class="field">
+    <label for="password">Contraseña</label>
+    <input type="password" id="password" name="password" required>
+  </div>
+  <button type="submit">Iniciar sesión</button>
+</form>
+
+<div id="auth-error" class="error hidden" role="alert"></div>
+
+<p class="meta">¿Aún no tienes cuenta? <a href="{{ url_for('auth.register_page') }}">Regístrate</a>.</p>
+{% endblock %}

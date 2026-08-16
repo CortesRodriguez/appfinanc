@@ -1,0 +1,44 @@
+[
+  {
+    "id": "q1",
+    "concept": "interes_real",
+    "question": "Si una inversión rinde 8% al año y la inflación anual es 5%, ¿cuál es aproximadamente la ganancia real (en poder de compra)?",
+    "options": ["13%", "8%", "3%", "5%"],
+    "correct_index": 2
+  },
+  {
+    "id": "q2",
+    "concept": "interes_simple",
+    "question": "En el interés simple, ¿sobre qué monto se calcula la ganancia en cada período?",
+    "options": ["Sobre el monto inicial siempre", "Sobre el monto inicial más los intereses previos", "Sobre el promedio del mercado", "Sobre la inflación acumulada"],
+    "correct_index": 0
+  },
+  {
+    "id": "q3",
+    "concept": "diversificacion",
+    "question": "¿Qué logra principalmente diversificar una cartera de inversión entre distintos instrumentos?",
+    "options": ["Aumentar la rentabilidad garantizada", "Reducir el riesgo total de la inversión", "Eliminar por completo el riesgo", "Evitar el pago de impuestos"],
+    "correct_index": 1
+  },
+  {
+    "id": "q4",
+    "concept": "volatilidad",
+    "question": "Si un instrumento tiene alta volatilidad, esto significa que:",
+    "options": ["Su precio se mueve poco y de forma estable", "Su precio tiene movimientos bruscos e impredecibles", "Siempre va a subir de precio", "No tiene riesgo asociado"],
+    "correct_index": 1
+  },
+  {
+    "id": "q5",
+    "concept": "rsi",
+    "question": "Un RSI (Índice de Fuerza Relativa) sobre 70 generalmente se interpreta como una señal de:",
+    "options": ["Sobreventa", "Sobrecompra", "Baja inflación", "Alta liquidez"],
+    "correct_index": 1
+  },
+  {
+    "id": "q6",
+    "concept": "tpm",
+    "question": "La TPM (Tasa de Política Monetaria) es fijada por:",
+    "options": ["La Bolsa de Santiago", "El Banco Central de Chile", "Cada banco comercial de forma independiente", "El Instituto Nacional de Estadísticas"],
+    "correct_index": 1
+  }
+]

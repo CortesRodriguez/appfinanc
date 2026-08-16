@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Reporte comparativo — appfint{% endblock %}
+
+{% block content %}
+<h1>Reporte comparativo de comprensión</h1>
+
+{% if report.summary %}
+<div class="card summary-grid">
+  <div><strong>Participantes con pre y post</strong><span>{{ report.summary.participants }}</span></div>
+  <div><strong>Promedio pre-test</strong><span>{{ report.summary.avg_pre_score }} / {{ report.summary.total_questions }}</span></div>
+  <div><strong>Promedio post-test</strong><span>{{ report.summary.avg_post_score }} / {{ report.summary.total_questions }}</span></div>
+  <div><strong>Mejora promedio</strong><span>{{ report.summary.avg_delta }}</span></div>
+</div>
+
+<a class="button" href="{{ url_for('web.admin_report_export') }}">Exportar resultados en CSV</a>
+
+<table class="table">
+  <thead><tr><th>Sesión (anónima)</th><th>Pre</th><th>Post</th><th>Δ</th></tr></thead>
+  <tbody>
+    {% for row in report.rows %}
+    <tr>
+      <td>{{ row.session_id[:8] }}…</td>
+      <td>{{ row.pre_score }}</td>
+      <td>{{ row.post_score }}</td>
+      <td>{{ row.delta }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Aún no hay suficientes datos (se requieren participantes con encuesta previa y posterior completas) para generar el reporte.</p>
+{% endif %}
+{% endblock %}

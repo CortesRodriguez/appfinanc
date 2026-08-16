@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Historial — appfint{% endblock %}
+
+{% block content %}
+<h1>Historial de consultas de la sesión</h1>
+
+{% if history %}
+<table class="table">
+  <thead>
+    <tr><th>Instrumento</th><th>Indicador</th><th>Fecha/hora de extracción</th></tr>
+  </thead>
+  <tbody>
+    {% for item in history %}
+    <tr>
+      <td>{{ item.symbol }}</td>
+      <td>{{ item.indicators|join(', ') }}</td>
+      <td>{{ item.timestamp }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="meta">Se muestran hasta las últimas {{ history|length }} consultas de esta sesión.</p>
+{% else %}
+<p>Aún no has realizado consultas en esta sesión.</p>
+{% endif %}
+{% endblock %}

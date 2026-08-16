@@ -1,0 +1,17 @@
+[
+  {"term": "Volatilidad", "definition": "Mide cuánto sube y baja el precio de un instrumento en un período. Una volatilidad alta indica movimientos de precio más bruscos e impredecibles, y por lo tanto mayor riesgo."},
+  {"term": "RSI (Índice de Fuerza Relativa)", "definition": "Indicador que va de 0 a 100 y ayuda a saber si un instrumento se ha comprado o vendido en exceso recientemente. Sobre 70 sugiere sobrecompra; bajo 30 sugiere sobreventa."},
+  {"term": "Media móvil", "definition": "Promedio del precio durante los últimos días. Sirve para suavizar el ruido diario y ver si la tendencia general es al alza o a la baja."},
+  {"term": "Rentabilidad", "definition": "Porcentaje de ganancia o pérdida de una inversión en un período determinado, comparando el valor final con el valor inicial."},
+  {"term": "Riesgo", "definition": "Posibilidad de que el valor de una inversión varíe de forma negativa. A mayor riesgo, mayor es la probabilidad de pérdidas (pero también de mayores ganancias)."},
+  {"term": "IPC", "definition": "Índice de Precios al Consumidor. Mide la variación mensual de precios de una canasta de bienes y servicios, y es la base para calcular la inflación en Chile."},
+  {"term": "TPM", "definition": "Tasa de Política Monetaria. Es la tasa de referencia que fija el Banco Central de Chile y que influye en las tasas de crédito y depósitos del sistema financiero."},
+  {"term": "IPSA", "definition": "Índice de Precio Selectivo de Acciones. Agrupa a las 30 principales acciones transadas en la Bolsa de Santiago y refleja el desempeño general del mercado accionario chileno."},
+  {"term": "UF (Unidad de Fomento)", "definition": "Unidad de cuenta chilena que se reajusta diariamente según la inflación del mes anterior. Se usa en créditos hipotecarios, arriendos y algunos instrumentos de inversión."},
+  {"term": "Tipo de cambio", "definition": "Precio de una moneda extranjera (por ejemplo, el dólar) expresado en pesos chilenos. Afecta el valor de las inversiones en activos extranjeros."},
+  {"term": "Diversificación", "definition": "Estrategia de distribuir el dinero entre distintos instrumentos o activos para reducir el riesgo total de la inversión."},
+  {"term": "Interés simple", "definition": "Ganancia que se calcula siempre sobre el monto inicial invertido, sin acumular los intereses generados en períodos anteriores."},
+  {"term": "Interés real", "definition": "Rentabilidad de una inversión descontando el efecto de la inflación, es decir, la ganancia efectiva en poder de compra."},
+  {"term": "ETF", "definition": "Fondo cotizado en bolsa que agrupa varios activos (como acciones) y se compra y vende como si fuera una sola acción."},
+  {"term": "Sobrecompra / Sobreventa", "definition": "Situación en que un instrumento ha subido o bajado de precio de forma muy rápida, lo que puede anticipar una corrección en sentido contrario."}
+]

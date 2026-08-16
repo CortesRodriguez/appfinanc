@@ -1,110 +1,71 @@
-# CLAUDE.md - Guia rapida del proyecto
+# CLAUDE.md
 
-Repositorio: `anteproyecto_app` (GitHub: `CortesRodriguez/appfinanc`).
-Documento fuente: `f1_s04xcortes.docx` (fuera del repo).
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Que es esto
-
-Prototipo academico del anteproyecto **"Sistema basado en IA para apoyar
-la comprension de informacion financiera tecnica en inversionistas
-principiantes del contexto digital chileno"** (Ximena Cortes, 2026).
-El sistema transforma indicadores financieros (RSI, volatilidad, medias
-moviles, rentabilidad) en explicaciones comprensibles.
-
-## Estructura
-
-```
-extractor/         Sprint 5. Obtiene datos desde Yahoo Finance y mindicador.cl.
-nlp_processor/     Sprint 6. FinBERT + generador de explicaciones + riesgo + glosario.
-app/               Sprints 7-9. Flask app (auth JWT, consulta, perfil, cinta).
-  templates/
-  static/
-main.py            CLI para ejercitar el Extractor.
-run.py             Entry point de la app Flask.
-instance/          SQLite generada en runtime (ignored).
-logs/              Trazabilidad de extracciones (ignored).
-```
-
-## Convenciones importantes
-
-- **Fechas del cronograma manda.** Solo se implementan requerimientos
-  del sprint activo o previos, segun Tabla 2.57 del anteproyecto. Al
-  avanzar en el tiempo se agregan nuevos sprints. No adelantar trabajo.
-- **Contrato Extractor -> NLP:** `IndicadorNormalizado`
-  (`extractor/normalizer.py`). Ese dataclass es el unico input que
-  espera el Procesador NLP. Si se agrega un indicador nuevo, extender
-  aca primero.
-- **FinBERT es opcional.** El wrapper `nlp_processor/finbert.py` carga
-  `transformers` de forma perezosa. Si el paquete no esta instalado,
-  cae a una heuristica y lo indica en el campo `fuente`. No es un bug.
-- **Anonimizacion de encuestas (RNF-05).** `RespuestaEncuesta` NO tiene
-  FK a `Usuario`. Solo se guarda si aceptaron participar; nunca se
-  vincula.
-- **Cache 5 min (RNF-02.2).** Definido en `extractor/config.py`
-  (`CACHE_TTL_SEG`). Cualquier consulta al mismo ticker + rango dentro
-  de la ventana reutiliza el `IndicadorNormalizado`.
-- **Reintentos 3x (RNF-09.2).** Manejo centralizado en
-  `extractor/cache.py::con_reintentos`. Los extractores lo envuelven.
-- **RF-04.2 (coherencia).** Antes de mostrar una explicacion, se
-  verifica que las categorias cualitativas coincidan con los umbrales
-  reales del indicador (RSI). Ver `nlp_processor/validator.py`.
-- **Contrasenas:** Flask-Bcrypt, min 8 caracteres (RNF-06.1). JWT en
-  cookie HttpOnly, expira en 24 h (RNF-06.2).
-
-## Cosas que NO cambiar sin cuidado
-
-- Umbrales del RSI (`extractor/config.py::UMBRALES_RSI`): son
-  referenciados por el generador y la validacion de coherencia. Si se
-  cambian, hay que revisar `nlp_processor/validator.py`.
-- `Perfil.desde_actividad()`: la formula que decide "basico" ->
-  "intermedio" -> "avanzado" segun consultas / regeneraciones. Es
-  parte de RF-13.2.
-- Nombres de indicadores permitidos: `rsi`, `volatilidad`,
-  `media_movil`, `rentabilidad`. Estan hardcodeados en la UI, el
-  generador y la BD.
-
-## Cosas que si es OK cambiar solo
-
-- Copy visible en templates HTML (mensajes, botones, headings).
-- Estilos en `app/static/css/styles.css`.
-- Textos del glosario (`nlp_processor/glosario.py`).
-
-## Como correr
+## Commands
 
 ```bash
-python3 -m pip install -r requirements.txt
+# Run the app (dev server on http://127.0.0.1:5000/)
+python app.py
 
-# CLI para probar el Extractor
-python3 main.py --ticker CHILE.SN --rango "3 meses"
+# Run all tests
+pytest
 
-# App web completa
-python3 run.py
-# abrir http://127.0.0.1:5000
+# Run a single test file
+pytest tests/test_indicators.py
+
+# Run a single test by name
+pytest tests/test_indicators.py::test_compute_volatility
+
+# Validate all IPSA tickers against Yahoo Finance (live network call)
+python scripts/validate_tickers.py
+
+# First-time setup
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Primer arranque crea automaticamente `instance/appfinanc.sqlite`.
+If `appfint.db` schema is stale (e.g. new tables were added), delete the file — `db.create_all()` at startup recreates it from scratch. There are no migrations.
 
-## Fuentes de datos
+## Architecture
 
-- Yahoo Finance (`yfinance`, sin API key).
-- Alpha Vantage (fallback opcional, requiere `ALPHA_VANTAGE_API_KEY`).
-- Banco Central via `https://mindicador.cl/api/<indicador>` (sin key).
+The app is a Flask monolith with four independent backend modules, a thin Flask presenter layer, and a vanilla-JS frontend. All modules live under `src/`.
 
-## Estado por sprint (al 18/10/2026)
+```
+extractor/   — fetches and caches price data; computes financial indicators
+nlp/         — generates Spanish natural-language explanations from indicator dicts
+evaluation/  — pre/post survey persistence, query logging, coherence checking
+auth/        — JWT-in-cookie login (Flask-JWT-Extended + Flask-Bcrypt)
+profile/     — adaptive detail-level based on per-user regeneration history
+web/         — Flask Blueprint (routes.py), Jinja2 templates, CSS, JS
+```
 
-| Sprint | Alcance | Estado |
-|--------|---------|--------|
-| 1-4    | Analisis, diseño y seleccion NLP | Completado (documental) |
-| 5      | Extractor (RF-01, RF-02, RF-03) | Implementado |
-| 6      | Procesador NLP (RF-04, RF-05, RF-06) | Implementado |
-| 7      | Presentador Flask (RF-07, RF-08, RF-09, RF-10) | Implementado |
-| 8      | Auth y perfil (RF-11, RF-12, RF-13, RF-14) | Implementado |
-| 9      | Integracion | Implementado |
-| 10-13  | Pruebas, evaluacion, cierre docs | Pendiente segun cronograma |
+`app.py` is a three-line entry point; `src/web/__init__.py` creates the Flask app and registers all blueprints; `config.py` holds all runtime configuration.
 
-## Cosas pendientes (fuera de fecha)
+### Data flow for the price chart
 
-- Sprint 10: pruebas funcionales sistematicas y ajuste de RNF.
-- Sprint 11: aplicacion y analisis de la encuesta pre/post.
-- Sprint 12: validacion semantica de explicaciones vs indicadores.
-- Sprint 13: documentacion final y diagramas.
+1. User clicks a period button (1M/3M/6M/1A) → JS sends `GET /api/chart?symbol=…&days=N` where N ∈ {30, 90, 180, 365}.
+2. `src/web/routes.py:api_chart()` calls `get_price_series(symbol, days)`.
+3. `src/extractor/__init__.py:_get_history()` checks an in-memory `TTLCache` keyed by `(symbol, days)` (5-minute TTL). On miss, calls `src/extractor/sources.py:fetch_price_history()`.
+4. `fetch_price_history()` tries Yahoo Finance (`yfinance`) first, Alpha Vantage as fallback. Yahoo is called with a string period from `PERIOD_TO_DAYS = {30: "3mo", 90: "6mo", 180: "1y", 365: "1y"}`, then the result is clipped to `hist.tail(days)`. Alpha Vantage clips with `sorted(dates)[-days:]`. Both paths return daily OHLC dicts `{date, open, high, low, close}`.
+5. `src/extractor/indicators.py:compute_ma_series()` builds the JSON payload: parallel lists `dates`, `close`, `open`, `high`, `low`, `sma_short`, `sma_long`.
+6. JS `renderChart()` in `dashboard.js` feeds this to TradingView Lightweight Charts v4.2.0 as a candlestick series + two line series.
+
+The `days` parameter is also forwarded to `/api/query` (POST) for each of the four indicator cards — same history slice drives both the chart and the indicator calculations.
+
+### Key design constraints to be aware of
+
+- **`VALID_PERIODS = (30, 90, 180, 365)`** in `extractor/__init__.py` is enforced by `_validate_inputs()`. Passing any other value raises `ExtractionError` → HTTP 502. Both `/api/chart` and `/api/query` enforce this.
+- **`days` counts trading rows, not calendar days.** `tail(N)` returns the N most recent trading-day rows. 30 rows ≈ 6 calendar weeks; 180 rows ≈ 8.5 calendar months. Labels (1M/3M/6M/1A) are approximate.
+- **MA windows auto-scale** in `compute_ma_series()`: `short_window = min(50, max(2, len(close)//2))`. For a 30-row window the series has MA~15/MA~30, not MA50/MA200. The HTML legend is hardcoded and does not reflect this.
+- **Cache is per (symbol, days).** Switching timeframes always triggers a fresh fetch; switching instruments also triggers a fresh fetch.
+- **No price data in the DB.** `appfint.db` only stores users, JWT revocations, sessions, query logs, coherence checks, survey responses, and instrument visits. All price data is ephemeral (in-memory cache).
+- **Session race condition** (already fixed): `before_app_request` establishes the session cookie on page load so concurrent AJAX calls don't race to create it. `ensure_evaluation_session()` in `evaluation/__init__.py` tolerates `IntegrityError` from parallel `/api/query` calls.
+- **CSRF pattern**: JWT is stored in an httpOnly cookie. A second CSRF token is in a JS-readable cookie (`csrf_access_token`); all mutating fetch calls must set `X-CSRF-TOKEN` header from it (see `static/js/csrf.js`).
+- **FinBERT is opt-in**: `USE_FINBERT=true` in `.env` adds a sentiment signal to explanations. The app runs normally without `transformers`/`torch` installed.
+- **Adaptive detail level** (`profile/service.py:get_detail_level`): if a logged-in user has regenerated an indicator's explanation ≥ 2 times, subsequent explanations for that indicator use a more detailed template variant.
+
+### Catalog and instruments
+
+`data/instruments.json` lists the 30 IPSA constituents with `.SN` suffix for Yahoo Finance. IPSA itself (`^IPSA`) is shown in the ticker tape only — it is not in the catalog and cannot be queried individually. Any other ticker can be queried ad-hoc via `/api/lookup` (uses `get_price_series` with 90 days as a probe) without being added to the catalog.

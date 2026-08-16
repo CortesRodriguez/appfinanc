@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}appfint{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="ticker-tape" id="ticker-tape" aria-label="Cinta de precios en vivo">
+    <div class="ticker-tape-track" id="ticker-track">
+      <span class="ticker-item ticker-loading">Cargando cinta de precios…</span>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('web.index') }}">appfint</a>
+    <nav>
+      <a href="{{ url_for('web.index') }}">Consultar</a>
+      <a href="{{ url_for('web.history') }}">Historial</a>
+      <a href="{{ url_for('web.glossary_page') }}">Glosario</a>
+      <a href="{{ url_for('web.survey_page', phase='pre') }}">Encuesta previa</a>
+      <a href="{{ url_for('web.survey_page', phase='post') }}">Encuesta posterior</a>
+      {% if current_user %}
+      <a href="{{ url_for('profile.profile_page') }}">Mi perfil</a>
+      <a href="#" id="logout-link">Cerrar sesión ({{ current_user.username }})</a>
+      {% else %}
+      <a href="{{ url_for('auth.login_page') }}">Iniciar sesión</a>
+      <a href="{{ url_for('auth.register_page') }}">Registrarse</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <span>Prototipo académico — no constituye asesoría de inversión.</span>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script>window.APP_TICKER_ENDPOINT = "{{ url_for('web.api_ticker') }}";</script>
+  <script src="{{ url_for('static', filename='js/ticker.js') }}"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

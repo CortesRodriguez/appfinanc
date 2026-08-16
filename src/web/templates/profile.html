@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Mi perfil — appfint{% endblock %}
+
+{% block content %}
+<h1>Hola, {{ user.username }}</h1>
+<p class="lead">Resumen de tu aprendizaje: qué has consultado y en qué indicadores te ha costado más entender la explicación.</p>
+
+<div class="card summary-grid">
+  <div><strong>Consultas totales</strong><span>{{ profile.total_queries }}</span></div>
+  <div><strong>Instrumentos distintos consultados</strong><span>{{ profile.top_instruments|length }}</span></div>
+  <div>
+    <strong>Indicador que más te ha costado</strong>
+    <span>{{ indicator_labels.get(profile.top_indicator, "—") if profile.top_indicator else "—" }}</span>
+  </div>
+</div>
+
+<section class="card">
+  <h2>Instrumentos más consultados</h2>
+  {% if profile.top_instruments %}
+  <table class="table">
+    <thead><tr><th>Instrumento</th><th>Consultas</th></tr></thead>
+    <tbody>
+      {% for row in profile.top_instruments %}
+      <tr><td>{{ row.instrument }}</td><td>{{ row.count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Aún no has consultado ningún instrumento con tu cuenta iniciada.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="hard-indicator-card">
+  <h2>Indicador que más te ha costado comprender</h2>
+  {% if profile.top_indicator %}
+  <p class="meta">Pediste "No entendí esto" {{ profile.top_indicator_regenerations }} veces en
+    <strong>{{ indicator_labels.get(profile.top_indicator, profile.top_indicator) }}</strong>,
+    la última vez para {{ profile.top_indicator_instrument }}.</p>
+  <p id="profile-explanation" class="explanation">{{ profile.top_indicator_explanation }}</p>
+  <button type="button" id="profile-regenerate-btn">Generar una explicación nueva</button>
+  <div id="profile-loading" class="loading hidden"><span class="spinner"></span> Generando…</div>
+  <div id="profile-error" class="error hidden" role="alert"></div>
+  {% else %}
+  <p>Todavía no has pedido "No entendí esto" en ninguna explicación, así que no hay un indicador difícil que destacar. ¡Buena señal!</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.APP_ENDPOINTS = { profileRegenerate: "{{ url_for('profile.api_profile_regenerate') }}" };
+</script>
+<script>
+  (function () {
+    const btn = document.getElementById("profile-regenerate-btn");
+    if (!btn) return;
+
+    btn.addEventListener("click", async () => {
+      const loading = document.getElementById("profile-loading");
+      const errorBox = document.getElementById("profile-error");
+      errorBox.classList.add("hidden");
+      loading.classList.remove("hidden");
+      btn.disabled = true;
+
+      try {
+        const response = await fetch(window.APP_ENDPOINTS.profileRegenerate, {
+          method: "POST",
+          headers: csrfHeaders(),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          errorBox.textContent = data.error || "No fue posible regenerar la explicación.";
+          errorBox.classList.remove("hidden");
+        } else {
+          document.getElementById("profile-explanation").textContent = data.explanation;
+        }
+      } catch (err) {
+        errorBox.textContent = "No fue posible conectar con el servidor.";
+        errorBox.classList.remove("hidden");
+      } finally {
+        loading.classList.add("hidden");
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
+{% endblock %}

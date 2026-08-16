@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Encuesta {{ 'previa' if phase == 'pre' else 'posterior' }} — appfint{% endblock %}
+
+{% block content %}
+{% if phase == 'pre' %}
+<h1>Encuesta de comprensión — antes de usar el sistema</h1>
+{% else %}
+<h1>Encuesta de comprensión — después de usar el sistema</h1>
+{% endif %}
+
+{% if blocked %}
+<p class="error">Debes completar primero la encuesta previa antes de responder esta encuesta.
+  <a href="{{ url_for('web.survey_page', phase='pre') }}">Ir a la encuesta previa</a>.
+</p>
+{% elif already_done %}
+<p>Ya respondiste esta encuesta durante tu sesión actual. Gracias por participar.</p>
+{% else %}
+<form id="survey-form" class="card" data-phase="{{ phase }}">
+  {% for q in questions %}
+  <fieldset class="field">
+    <legend>{{ loop.index }}. {{ q.question }}</legend>
+    {% for opt in q.options %}
+    <label class="option">
+      <input type="radio" name="{{ q.id }}" value="{{ loop.index0 }}" required>
+      {{ opt }}
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+
+  <button type="button" id="review-btn">Revisar respuestas</button>
+</form>
+
+<section id="survey-summary" class="card hidden">
+  <h2>Resumen de tus respuestas</h2>
+  <ul id="summary-list"></ul>
+  <button type="button" id="confirm-submit-btn">Confirmar y enviar</button>
+  <button type="button" id="back-to-edit-btn">Volver a editar</button>
+</section>
+
+<div id="survey-result" class="card hidden"></div>
+<div id="survey-error" class="error hidden" role="alert"></div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.APP_ENDPOINTS = { surveySubmit: "/api/encuesta/{{ phase }}" };
+</script>
+{% endblock %}

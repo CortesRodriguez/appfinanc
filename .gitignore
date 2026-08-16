@@ -1,31 +1,17 @@
-# Bytecode y cache de Python
 __pycache__/
-*.py[cod]
-*.egg-info/
-
-# Entornos virtuales
+*.pyc
 .venv/
 venv/
-env/
-
-# Logs generados en runtime (trazabilidad)
-logs/
-
-# Config y secretos locales
 .env
-*.local
-
-# Artefactos del editor
-.vscode/
-.idea/
-.DS_Store
-
-# Base de datos local generada por Flask
+*.db
 instance/
+.pytest_cache/
+*.egg-info/
 
-# Copias del anteproyecto (no ensuciar el repo con el .docx)
+# Documento fuente del anteproyecto (queda fuera del repo)
 *.docx
 *.pdf
 
 # Herramientas de sesion
 .claude/
+.DS_Store

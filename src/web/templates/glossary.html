@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Glosario — appfint{% endblock %}
+
+{% block content %}
+<h1>Glosario de términos financieros</h1>
+
+<input type="search" id="glossary-search" placeholder="Buscar un término…" aria-label="Buscar término">
+
+<dl id="glossary-list" class="glossary">
+  {% for term in terms %}
+  <div class="glossary-item">
+    <dt>{{ term.term }}</dt>
+    <dd>{{ term.definition }}</dd>
+  </div>
+  {% endfor %}
+</dl>
+<p id="glossary-empty" class="hidden">No se encontraron resultados.</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.APP_ENDPOINTS = { glossarySearch: "{{ url_for('web.api_glossary_search') }}" };
+</script>
+{% endblock %}

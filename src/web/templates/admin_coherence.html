@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Revisión de coherencia — appfint{% endblock %}
+
+{% block content %}
+<h1>Revisión de coherencia semántica</h1>
+<p class="lead">Casos donde la validación automática comparó la explicación generada con el valor real del indicador (RF-13).</p>
+
+<div class="filters">
+  <a href="{{ url_for('web.admin_coherence', status='todos') }}" class="{{ 'active' if status_filter == 'todos' }}">Todos</a>
+  <a href="{{ url_for('web.admin_coherence', status='pendiente') }}" class="{{ 'active' if status_filter == 'pendiente' }}">No concluyentes</a>
+  <a href="{{ url_for('web.admin_coherence', status='revisado') }}" class="{{ 'active' if status_filter == 'revisado' }}">Revisados</a>
+</div>
+
+<table class="table">
+  <thead>
+    <tr><th>Instrumento</th><th>Indicador</th><th>Valor</th><th>Riesgo</th><th>Explicación</th><th>Estado</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for c in checks %}
+    <tr class="{{ 'no-concluyente' if not c.coherent }}">
+      <td>{{ c.instrument }}</td>
+      <td>{{ c.indicator }}</td>
+      <td>{{ c.value }}</td>
+      <td>{{ c.risk_level }}</td>
+      <td class="explanation-cell">{{ c.explanation_text }}{% if c.reason %}<br><em>{{ c.reason }}</em>{% endif %}</td>
+      <td>{{ c.status }}</td>
+      <td>
+        {% if c.status == 'pendiente' %}
+        <button type="button" class="review-btn" data-id="{{ c.id }}">Marcar revisado</button>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7">No hay registros para este filtro.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll(".review-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const res = await fetch(`/admin/coherencia/${id}/revisar`, { method: "POST" });
+      if (res.ok) window.location.reload();
+    });
+  });
+</script>
+{% endblock %}
