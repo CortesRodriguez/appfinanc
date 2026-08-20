@@ -8,3 +8,10 @@ yfinance>=0.2.54
 requests==2.32.3
 python-dotenv==1.0.1
 pytest==8.2.2
+
+# RF-04.1: FinBERT es el clasificador NLP central del sistema. Si por cualquier
+# motivo no se puede instalar (falta de espacio en disco, restricciones de
+# despliegue), el sistema sigue funcionando con plantillas puras — pero se
+# pierde la señal de sentimiento del modelo. Instalación recomendada:
+transformers>=4.40
+torch>=2.0

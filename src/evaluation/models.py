@@ -1,10 +1,20 @@
-"""Modelos de persistencia del Modulo de Evaluacion.
+"""Modelos de persistencia del Módulo de Evaluación.
 
-Todos los registros se asocian a un `session_id` anonimo generado por
-Flask (UUID de sesion), nunca a datos personales identificables
-(RNF-05.1, RNF-05.2).
+La `EvaluationSession`, `QueryLog`, `InstrumentVisit` y `CoherenceCheck`
+son datos operativos del sistema y siguen ligados al `session_id`
+anónimo de Flask (RNF-05.1, RNF-05.2).
+
+`SurveyResponse` es distinto: pertenece al plano de instrumentación de
+investigación (Instrumento 1 — Autoevaluación Retrospectiva). Por
+diseño **no** se vincula con `session_id` ni con `user_id`: cada
+respuesta se identifica únicamente con un `response_token` generado en
+el momento del envío. Esto garantiza que las respuestas sean anónimas
+por construcción (no por disciplina): un JOIN entre `users` y
+`survey_responses` es imposible porque no existe una columna
+compartida.
 """
 
+import uuid
 from datetime import datetime, timezone
 
 from src.extensions import db
@@ -12,6 +22,10 @@ from src.extensions import db
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+def _new_response_token():
+    return str(uuid.uuid4())
 
 
 class EvaluationSession(db.Model):
@@ -23,14 +37,24 @@ class EvaluationSession(db.Model):
 
 
 class SurveyResponse(db.Model):
+    """Una fila por (respuesta completa, concepto) de la autoevaluación retrospectiva.
+
+    Instrumento 1: la persona, al enviar la encuesta, produce un
+    `response_token` único; por cada concepto evaluado se guarda una
+    fila con `scale_before` (1-5) y `scale_now` (1-5). El delta subjetivo
+    de comprensión por concepto es `scale_now - scale_before`.
+
+    Deliberadamente no lleva `user_id` ni `session_id` para preservar
+    el anonimato de la respuesta frente a cualquier consulta posterior.
+    """
+
     __tablename__ = "survey_responses"
 
     id = db.Column(db.Integer, primary_key=True)
-    session_id = db.Column(db.String(36), db.ForeignKey("evaluation_sessions.session_id"), nullable=False)
-    phase = db.Column(db.String(4), nullable=False)  # 'pre' o 'post' (RF-11.1 / RF-11.2)
-    question_id = db.Column(db.String(16), nullable=False)
-    answer_index = db.Column(db.Integer, nullable=False)
-    correct = db.Column(db.Boolean, nullable=False)
+    response_token = db.Column(db.String(36), nullable=False, index=True)
+    concept_id = db.Column(db.String(32), nullable=False)
+    scale_before = db.Column(db.Integer, nullable=False)  # 1..5, auto-percepción antes
+    scale_now = db.Column(db.Integer, nullable=False)  # 1..5, auto-percepción ahora
     created_at = db.Column(db.DateTime, default=_utcnow)
 
 

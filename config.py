@@ -28,7 +28,13 @@ class Config:
     PASSWORD_MIN_LENGTH = 8
 
     ALPHAVANTAGE_API_KEY = os.environ.get("ALPHAVANTAGE_API_KEY", "")
-    USE_FINBERT = os.environ.get("USE_FINBERT", "false").lower() == "true"
+
+    # RF-04.1: FinBERT es el componente NLP central del Procesador. Activado por
+    # defecto. Si `transformers`/`torch` no están instalados o la carga del
+    # modelo falla, el sistema degrada silenciosamente al motor de plantillas
+    # puras (ver `src/nlp/explainer.py:_finbert_signal`), coherente con la
+    # tolerancia a fallos de RNF-09.
+    USE_FINBERT = os.environ.get("USE_FINBERT", "true").lower() == "true"
 
     # RNF-02.2: cache de indicadores extraidos por 5 minutos
     CACHE_TTL_SECONDS = 5 * 60
@@ -41,3 +47,8 @@ class Config:
 
     # RNF-08.2: reintentos ante falla de conexion con APIs financieras
     API_MAX_RETRIES = 3
+
+    # En desarrollo: forzar al navegador a revalidar JS/CSS en cada carga para
+    # que los cambios en estaticos se reflejen sin necesidad de hard-refresh.
+    # En produccion se subiria a un caching largo con hash en el filename.
+    SEND_FILE_MAX_AGE_DEFAULT = 0

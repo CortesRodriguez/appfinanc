@@ -8,6 +8,9 @@ from src.web import create_app
 class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     TESTING = True
+    # Los tests no invocan FinBERT (cargar el modelo agrega ~3-5 s por test).
+    # La lógica de FinBERT + fallback se cubre por separado en test_explainer.py.
+    USE_FINBERT = False
 
 
 @pytest.fixture

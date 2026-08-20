@@ -1,33 +1,70 @@
 {% extends "base.html" %}
-{% block title %}Encuesta {{ 'previa' if phase == 'pre' else 'posterior' }} — appfint{% endblock %}
+{% block title %}Autoevaluación retrospectiva — Norte{% endblock %}
 
 {% block content %}
-{% if phase == 'pre' %}
-<h1>Encuesta de comprensión — antes de usar el sistema</h1>
-{% else %}
-<h1>Encuesta de comprensión — después de usar el sistema</h1>
-{% endif %}
+<h1>Autoevaluación retrospectiva</h1>
 
-{% if blocked %}
-<p class="error">Debes completar primero la encuesta previa antes de responder esta encuesta.
-  <a href="{{ url_for('web.survey_page', phase='pre') }}">Ir a la encuesta previa</a>.
+{% if blocked_reason == "anonimo" %}
+<p class="error">
+  Para responder la autoevaluación necesitas tener una cuenta.
+  <a href="{{ url_for('auth.login_page') }}">Inicia sesión</a> o
+  <a href="{{ url_for('auth.register_page') }}">regístrate</a>.
 </p>
-{% elif already_done %}
-<p>Ya respondiste esta encuesta durante tu sesión actual. Gracias por participar.</p>
+{% elif blocked_reason == "umbral" %}
+<p class="error">
+  La autoevaluación se habilita después de que hayas consultado al menos 5 instrumentos.
+  <a href="{{ url_for('web.index') }}">Volver al dashboard</a>.
+</p>
+{% elif blocked_reason == "sin_consentimiento" %}
+<p class="error">
+  Todavía no has aceptado participar en el estudio. Cuando vuelvas al dashboard,
+  verás la invitación con la explicación del estudio.
+  <a href="{{ url_for('web.index') }}">Volver al dashboard</a>.
+</p>
 {% else %}
-<form id="survey-form" class="card" data-phase="{{ phase }}">
-  {% for q in questions %}
-  <fieldset class="field">
-    <legend>{{ loop.index }}. {{ q.question }}</legend>
-    {% for opt in q.options %}
-    <label class="option">
-      <input type="radio" name="{{ q.id }}" value="{{ loop.index0 }}" required>
-      {{ opt }}
-    </label>
-    {% endfor %}
+
+<p class="lead">
+  Piensa en cada uno de los siguientes conceptos financieros. Para cada uno,
+  indica en una escala de 1 (nada) a 5 (muy bien) qué tan bien lo entendías
+  <strong>antes</strong> de usar Norte y qué tan bien lo entiendes
+  <strong>ahora</strong>. Todas las respuestas se guardan de forma anónima:
+  no quedan asociadas a tu cuenta.
+</p>
+
+<form id="survey-form" class="card">
+  {% for c in concepts %}
+  <fieldset class="field survey-item" data-concept="{{ c.id }}">
+    <legend>{{ loop.index }}. {{ c.label }}</legend>
+    <p class="muted">{{ c.description }}</p>
+
+    <div class="scale-block">
+      <div class="scale-row">
+        <span class="scale-label">Antes de usar Norte</span>
+        <div class="scale-options" data-dim="before">
+          {% for n in range(1, 6) %}
+          <label class="scale-option">
+            <input type="radio" name="{{ c.id }}_before" value="{{ n }}" required>
+            <span>{{ n }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="scale-row">
+        <span class="scale-label">Ahora</span>
+        <div class="scale-options" data-dim="now">
+          {% for n in range(1, 6) %}
+          <label class="scale-option">
+            <input type="radio" name="{{ c.id }}_now" value="{{ n }}" required>
+            <span>{{ n }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
   </fieldset>
   {% endfor %}
 
+  <p class="muted small">1 = No entendía nada · 5 = Lo entendía muy bien</p>
   <button type="button" id="review-btn">Revisar respuestas</button>
 </form>
 
@@ -45,6 +82,6 @@
 
 {% block scripts %}
 <script>
-  window.APP_ENDPOINTS = { surveySubmit: "/api/encuesta/{{ phase }}" };
+  window.APP_ENDPOINTS = { surveySubmit: "/api/encuesta" };
 </script>
 {% endblock %}

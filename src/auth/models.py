@@ -18,6 +18,11 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=_utcnow)
 
+    # None = todavía no se le pidió consentimiento (aún no cruzó el umbral de consultas).
+    # True = aceptó participar en el estudio de autoevaluación retrospectiva.
+    # False = declinó explícitamente. No se le vuelve a preguntar salvo que lo reactive desde /perfil.
+    acepta_evaluacion = db.Column(db.Boolean, nullable=True, default=None)
+
 
 class RevokedToken(db.Model):
     """Lista de revocacion de tokens JWT (RF-17.3: cerrar sesion invalida el token)."""

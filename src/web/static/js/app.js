@@ -155,7 +155,7 @@
   });
 })();
 
-// CU-06 / CU-07: encuesta con resumen previo a la confirmacion (RF-11.3)
+// CU-06 / CU-07: autoevaluación retrospectiva con resumen previo a la confirmación (RF-11.3)
 (function initSurveyForm() {
   const form = document.getElementById("survey-form");
   if (!form) return;
@@ -167,21 +167,21 @@
   const backBtn = document.getElementById("back-to-edit-btn");
   const resultBox = document.getElementById("survey-result");
   const errorBox = document.getElementById("survey-error");
-  const phase = form.dataset.phase;
 
   function collectAnswers() {
-    const fieldsets = form.querySelectorAll("fieldset");
+    const items = form.querySelectorAll(".survey-item");
     const answers = {};
     let allAnswered = true;
 
-    fieldsets.forEach((fieldset) => {
-      const name = fieldset.querySelector("input").name;
-      const checked = fieldset.querySelector("input:checked");
-      if (!checked) {
+    items.forEach((item) => {
+      const conceptId = item.dataset.concept;
+      const beforeChecked = item.querySelector(`input[name="${conceptId}_before"]:checked`);
+      const nowChecked = item.querySelector(`input[name="${conceptId}_now"]:checked`);
+      if (!beforeChecked || !nowChecked) {
         allAnswered = false;
         return;
       }
-      answers[name] = Number(checked.value);
+      answers[conceptId] = { before: Number(beforeChecked.value), now: Number(nowChecked.value) };
     });
 
     return { answers, allAnswered };
@@ -192,18 +192,20 @@
     const { answers, allAnswered } = collectAnswers();
 
     if (!allAnswered) {
-      errorBox.textContent = "Debes responder todas las preguntas antes de continuar.";
+      errorBox.textContent = "Debes marcar ambas escalas (antes y ahora) para cada concepto.";
       errorBox.classList.remove("hidden");
       return;
     }
 
     summaryList.innerHTML = "";
-    form.querySelectorAll("fieldset").forEach((fieldset) => {
-      const question = fieldset.querySelector("legend").textContent;
-      const checked = fieldset.querySelector("input:checked");
-      const label = checked.closest("label").textContent.trim();
+    form.querySelectorAll(".survey-item").forEach((item) => {
+      const conceptId = item.dataset.concept;
+      const label = item.querySelector("legend").textContent.trim();
+      const pair = answers[conceptId];
+      const delta = pair.now - pair.before;
       const li = document.createElement("li");
-      li.textContent = `${question} → ${label}`;
+      const deltaTxt = delta > 0 ? `+${delta}` : `${delta}`;
+      li.textContent = `${label} → antes ${pair.before}/5, ahora ${pair.now}/5 (Δ ${deltaTxt})`;
       summaryList.appendChild(li);
     });
 
@@ -238,11 +240,11 @@
       }
 
       summarySection.classList.add("hidden");
-      let message = `¡Gracias! Obtuviste ${data.score} de ${data.total} respuestas correctas.`;
-      if (phase === "post" && "delta" in data) {
-        message += ` Tu comprensión mejoró en ${data.delta} punto(s) respecto al pre-test.`;
-      }
-      resultBox.textContent = message;
+      const deltaSign = data.avg_delta > 0 ? "+" : "";
+      resultBox.innerHTML =
+        `<p><strong>¡Gracias por participar!</strong> Tu respuesta se guardó de forma anónima.</p>` +
+        `<p>Tu comprensión percibida cambió, en promedio, de <strong>${data.avg_before}/5</strong> ` +
+        `a <strong>${data.avg_now}/5</strong> (Δ ${deltaSign}${data.avg_delta}).</p>`;
       resultBox.classList.remove("hidden");
     } catch (err) {
       errorBox.textContent = "No fue posible conectar con el servidor. Intenta nuevamente.";

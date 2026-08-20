@@ -50,3 +50,52 @@ def test_profile_page_redirects_anonymous_to_login(client):
     response = client.get("/perfil")
     assert response.status_code == 302
     assert "/login" in response.headers["Location"]
+
+
+# Bloque 3: consentimiento contextual movido al registro -------------------
+
+def test_register_without_consent_leaves_flag_null(client, app):
+    from src.auth.models import User
+
+    _register(client, email="sin@consent.cl", password="12345678")
+    with app.app_context():
+        user = User.query.filter_by(email="sin@consent.cl").first()
+        assert user is not None
+        assert user.acepta_evaluacion is None
+
+
+def test_register_with_explicit_consent_true(client, app):
+    from src.auth.models import User
+
+    response = client.post(
+        "/api/auth/registro",
+        json={
+            "username": "Voluntaria",
+            "email": "voluntaria@test.cl",
+            "password": "12345678",
+            "acepta_evaluacion": True,
+        },
+    )
+    assert response.status_code == 201
+    with app.app_context():
+        user = User.query.filter_by(email="voluntaria@test.cl").first()
+        assert user is not None
+        assert user.acepta_evaluacion is True
+
+
+def test_register_with_explicit_consent_false(client, app):
+    from src.auth.models import User
+
+    response = client.post(
+        "/api/auth/registro",
+        json={
+            "email": "declina@test.cl",
+            "password": "12345678",
+            "acepta_evaluacion": False,
+        },
+    )
+    assert response.status_code == 201
+    with app.app_context():
+        user = User.query.filter_by(email="declina@test.cl").first()
+        assert user is not None
+        assert user.acepta_evaluacion is False

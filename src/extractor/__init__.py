@@ -5,10 +5,21 @@ Orquesta la seleccion de instrumento/periodo, la extraccion de datos
 """
 
 from .cache import TTLCache, price_history_cache
-from .indicators import INDICATOR_TYPES, compute_indicator, compute_ma_series
+from .indicators import INDICATOR_TYPES, compute_indicator, compute_ma_series, resample_records
 from .sources import DataSourceError, fetch_batch_quotes, fetch_macro_indicators, fetch_price_history
 
 VALID_PERIODS = (30, 90, 180, 365)
+VALID_INTERVALS = ("1d", "1w", "1mo", "3mo")
+
+# Exploracion historica extendida: el grafico siempre trae MAX_CHART_FETCH_DAYS
+# de historia (independiente del boton 1M/3M/6M/1A elegido) para que el usuario
+# pueda panear/zoom-out al pasado hasta ese tope sin importar el rango inicial.
+# La vista inicial se ancla a `days` (lo que el boton pidio) via `visible_days`
+# en la respuesta; el resto queda como buffer navegable. Verificado empiricamente
+# que el endpoint diario de Yahoo entrega datos reales para .SN cuando el period
+# solicitado es largo (>= 2y). El placeholder plano solo aparece en periodos
+# cortos como 5d/1mo. Techo pragmatico: 10 anos (~2500 filas por ticker).
+MAX_CHART_FETCH_DAYS = 3650
 
 quotes_cache = TTLCache(ttl_seconds=300)
 macro_cache = TTLCache(ttl_seconds=300)
@@ -18,11 +29,13 @@ class ExtractionError(Exception):
     """Error de negocio expuesto al Presentador (RF-09.1)."""
 
 
-def _validate_inputs(days: int, indicator: str = None):
+def _validate_inputs(days: int, indicator: str = None, interval: str = None):
     if days not in VALID_PERIODS:
         raise ExtractionError(f"Rango temporal invalido: {days}. Valores permitidos: {VALID_PERIODS}")
     if indicator is not None and indicator not in INDICATOR_TYPES:
         raise ExtractionError(f"Indicador invalido: {indicator}")
+    if interval is not None and interval not in VALID_INTERVALS:
+        raise ExtractionError(f"Intervalo invalido: {interval}. Valores permitidos: {VALID_INTERVALS}")
 
 
 def _get_history(symbol: str, days: int, alpha_vantage_key: str, cache_ttl_seconds: int):
@@ -72,17 +85,46 @@ def get_indicator(symbol: str, indicator: str, days: int = 90, alpha_vantage_key
     return result
 
 
-def get_price_series(symbol: str, days: int = 365, alpha_vantage_key: str = "", cache_ttl_seconds: int = 300):
-    """Serie de precios + medias moviles 50/200 para el grafico de tendencia (vista de escenarios)."""
-    _validate_inputs(days)
-    history = _get_history(symbol, days, alpha_vantage_key, cache_ttl_seconds)
+def get_price_series(
+    symbol: str,
+    days: int = 365,
+    interval: str = "1d",
+    alpha_vantage_key: str = "",
+    cache_ttl_seconds: int = 300,
+):
+    """Serie de precios + medias moviles para el grafico de tendencia.
+
+    - `days`: ventana temporal pedida por el usuario (1M/3M/6M/1A). El fetch
+      real es `CHART_BUFFER_FACTOR * days` (topeado en `MAX_CHART_FETCH_DAYS`)
+      para permitir pan al pasado.
+    - `interval`: granularidad de la vela (1d/1w/1mo/3mo). El extractor
+      siempre baja datos diarios; para intervalos mayores se re-muestrean
+      server-side con `resample_records`. Esto mantiene un solo path de
+      caching y aprovecha el fallback horario que arregla el bug de .SN.
+    """
+    _validate_inputs(days, interval=interval)
+    fetch_days = MAX_CHART_FETCH_DAYS
+    history = _get_history(symbol, fetch_days, alpha_vantage_key, cache_ttl_seconds)
+
+    records = history["records"]
+    if interval != "1d":
+        records = resample_records(records, interval)
 
     try:
-        series = compute_ma_series(history["records"])
+        series = compute_ma_series(records)
     except ValueError as exc:
         raise ExtractionError(str(exc)) from exc
 
-    series.update({"symbol": symbol, "source": history["source"], "extracted_at": history["fetched_at"]})
+    series.update(
+        {
+            "symbol": symbol,
+            "source": history["source"],
+            "extracted_at": history["fetched_at"],
+            "visible_days": days,
+            "fetched_days": fetch_days,
+            "interval": interval,
+        }
+    )
     return series
 
 

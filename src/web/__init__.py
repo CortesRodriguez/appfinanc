@@ -41,6 +41,10 @@ def create_app(config_object=Config):
     app.register_blueprint(auth_routes.bp)
     app.register_blueprint(profile_routes.bp)
 
+    # Filtro Jinja usado por el historial de consultas (RF-02.2) para
+    # mostrar la fecha/hora en formato "13:25:45 - 28 de agosto de 2026".
+    app.jinja_env.filters["es_datetime"] = routes._format_datetime_es
+
     with app.app_context():
         db.create_all()
 

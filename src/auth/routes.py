@@ -33,12 +33,23 @@ def login_page():
 def api_register():
     payload = request.get_json(silent=True) or {}
 
+    # RF-16 mejorado: registro simplificado. Solo email + password + confirmacion.
+    # El username es opcional (auto-derivado del prefijo del email en el service).
+    password = payload.get("password", "")
+    password_confirm = payload.get("password_confirm")
+    if password_confirm is not None and password_confirm != password:
+        return jsonify({"error": "Las contraseñas no coinciden."}), 400
+
+    acepta_raw = payload.get("acepta_evaluacion")
+    acepta_evaluacion = bool(acepta_raw) if isinstance(acepta_raw, bool) else None
+
     try:
         user = register_user(
-            payload.get("username", ""),
-            payload.get("email", ""),
-            payload.get("password", ""),
+            username=payload.get("username", ""),
+            email=payload.get("email", ""),
+            password=password,
             min_password_length=current_app.config["PASSWORD_MIN_LENGTH"],
+            acepta_evaluacion=acepta_evaluacion,
         )
     except AuthError as exc:
         return jsonify({"error": str(exc)}), 409

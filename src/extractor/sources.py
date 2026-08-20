@@ -16,7 +16,15 @@ import yfinance as yf
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 MINDICADOR_URL = "https://mindicador.cl/api"
 
-PERIOD_TO_DAYS = {30: "1mo", 90: "3mo", 180: "6mo", 365: "1y"}
+# Cubre tanto los valores exactos que pide el usuario (30/90/180/365) como el
+# valor grande que pide get_price_series para el buffer del chart (3650 = 10a).
+# Se traduce a un period de Yahoo que garantice al menos ese numero de dias;
+# el recorte fino se hace en _fetch_yahoo con `cutoff` sobre el DataFrame.
+PERIOD_TO_DAYS = {
+    30: "1mo", 60: "3mo", 90: "3mo",
+    180: "6mo", 360: "1y", 365: "1y",
+    730: "2y", 1825: "5y", 3650: "10y",
+}
 
 # RF-02.1 / Tabla "Indicadores financieros nacionales de Chile" de la memoria:
 # UF, dolar y TPM se obtienen de mindicador.cl (API publica gratuita basada
@@ -60,6 +68,47 @@ def _fetch_yahoo(symbol: str, days: int):
     hist = hist[hist.index >= cutoff]
     if hist.empty:
         raise DataSourceError(f"Yahoo Finance no devolvio datos recientes para {symbol}")
+
+    # Yahoo a veces devuelve filas con Close=NaN (dia de trading en curso sin
+    # cierre aun, feriado parcial, hueco en el ticker). Esos NaN se propagan a
+    # traves de compute_rsi / compute_bollinger / etc. y terminan violando el
+    # NOT NULL de coherence_checks.value en SQLite, provocando un 500 y un
+    # response HTML que el frontend no puede parsear como JSON. Se descartan
+    # aqui, en la fuente, antes que el resto del pipeline los vea.
+    hist = hist.dropna(subset=["Close"])
+    if hist.empty:
+        raise DataSourceError(f"Yahoo Finance no devolvio precios validos para {symbol}")
+
+    # Yahoo tambien devuelve filas "stale" al final del rango cuando el ticker
+    # no se transo ese dia (Volume=0 pero Close = cierre del dia anterior). Si
+    # esos dias entran al calculo del RSI, la ventana de 14 dias queda con
+    # deltas = 0 al final, forzando rs = 0/NaN y un RSI congelado en 0 o 100
+    # (valor de dias muy anteriores que sobrevive al dropna). El fix minimo es
+    # recortar las filas trailing sin volumen; los dias intermedios sin volumen
+    # se conservan para no reescribir la serie.
+    while len(hist) > 1 and hist["Volume"].iloc[-1] == 0:
+        hist = hist.iloc[:-1]
+    if hist.empty:
+        raise DataSourceError(f"Yahoo Finance no devolvio dias de trading recientes para {symbol}")
+
+    # El endpoint diario de Yahoo devuelve un placeholder plano (OHLC iguales,
+    # volumen 0) para varios .SN de la Bolsa de Santiago cuando se pide un
+    # periodo corto (5d/1mo). Detectarlo y caer al endpoint horario re-muestreado
+    # a diario, que si tiene los datos reales. El intraday esta limitado a 730d
+    # por Yahoo — si nos pidieron mas, el fallback devuelve lo que pueda (hasta 2a).
+    if hist["Volume"].sum() == 0 or hist["Close"].nunique() == 1:
+        hourly_period = yf_period if days <= 730 else "2y"
+        hourly = ticker.history(period=hourly_period, interval="1h")
+        if hourly is None or hourly.empty:
+            raise DataSourceError(f"Yahoo Finance no devolvio datos horarios para {symbol}")
+        hourly = hourly[hourly.index >= cutoff]
+        hist = (
+            hourly.resample("D")
+            .agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"})
+            .dropna()
+        )
+        if hist.empty:
+            raise DataSourceError(f"Yahoo Finance no devolvio datos horarios recientes para {symbol}")
 
     records = [
         {
@@ -133,13 +182,15 @@ def fetch_price_history(symbol: str, days: int, alpha_vantage_key: str = "", max
     }
 
 
-def fetch_batch_quotes(symbols: list, days: int = 5, max_retries: int = 2):
-    """Obtiene precio actual y variacion diaria de varios instrumentos en un solo request.
+def fetch_batch_quotes(symbols: list, max_retries: int = 2):
+    """Obtiene precio actual y variacion diaria de varios instrumentos.
 
     Usado por el sidebar del Presentador (RF-07.2) para listar el catalogo
-    completo sin hacer una solicitud por instrumento. Si un simbolo no
-    aparece en la respuesta del proveedor, queda en `None` en vez de
-    interrumpir a los demas (tolerancia a fallos, RNF-08).
+    completo. Consulta el endpoint `quoteSummary` de Yahoo por simbolo
+    (via `Ticker.info`) porque el batch de velas diarias entrega un
+    placeholder plano para muchos .SN de la Bolsa de Santiago. Si un
+    simbolo falla, queda en `None` en vez de interrumpir a los demas
+    (tolerancia a fallos, RNF-08).
 
     Retorna: {symbol: {"price": float, "daily_change_pct": float} | None}
     """
@@ -147,43 +198,28 @@ def fetch_batch_quotes(symbols: list, days: int = 5, max_retries: int = 2):
     if not symbols:
         return quotes
 
-    def _download():
-        return yf.download(
-            tickers=list(symbols),
-            period=f"{days}d",
-            group_by="ticker",
-            progress=False,
-            threads=True,
-            auto_adjust=True,
-        )
-
-    try:
-        data = _retry(_download, max_retries)
-    except DataSourceError:
-        return quotes
-
-    is_multi = hasattr(data, "columns") and isinstance(data.columns, pd.MultiIndex)
-
     for sym in symbols:
         try:
-            if is_multi:
-                if sym not in data.columns.get_level_values(0):
-                    continue
-                closes = data[sym]["Close"].dropna()
-            elif len(symbols) == 1:
-                closes = data["Close"].dropna()
-            else:
-                continue
-
-            if closes.empty:
-                continue
-
-            last = float(closes.iloc[-1])
-            prev = float(closes.iloc[-2]) if len(closes) >= 2 else last
-            change_pct = ((last - prev) / prev * 100) if prev else 0.0
-            quotes[sym] = {"price": round(last, 2), "daily_change_pct": round(change_pct, 2)}
-        except Exception:  # noqa: BLE001 - un simbolo con datos malformados no debe romper el lote
+            info = _retry(lambda s=sym: yf.Ticker(s).info, max_retries)
+        except DataSourceError:
             continue
+
+        if not isinstance(info, dict):
+            continue
+
+        price = info.get("regularMarketPrice") or info.get("currentPrice")
+        prev = info.get("regularMarketPreviousClose") or info.get("previousClose")
+        if price is None:
+            continue
+
+        try:
+            price = float(price)
+            prev = float(prev) if prev is not None else price
+        except (TypeError, ValueError):
+            continue
+
+        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        quotes[sym] = {"price": round(price, 2), "daily_change_pct": round(change_pct, 2)}
 
     return quotes
 

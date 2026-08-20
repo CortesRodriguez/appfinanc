@@ -102,14 +102,15 @@ def test_log_visit_creates_exactly_one_row_per_instrument(client):
     assert body.count("FALABELLA.SN") == 1
 
 
-def test_log_visit_includes_all_indicator_labels(client):
-    from src.constants import INDICATOR_LABELS
-
+def test_log_visit_lists_instrument_in_history(client):
+    """/api/historial/visita registra la visita al instrumento (RF-10).
+    La pagina /history la muestra en la seccion "Instrumentos visitados".
+    """
     client.post("/api/historial/visita", json={"symbol": "SQM-B.SN"})
     hist = client.get("/history")
     body = hist.data.decode()
-    for label in INDICATOR_LABELS.values():
-        assert label in body
+    assert "SQM-B.SN" in body
+    assert "Instrumentos visitados" in body
 
 
 def _fake_macro(max_retries=2):
@@ -155,10 +156,12 @@ def test_ticker_degrades_gracefully_when_macro_source_fails(client, monkeypatch)
     assert any(item["label"] == "IPSA" for item in items)  # sigue viniendo de Yahoo, no de mindicador.cl
 
 
-def test_query_alone_does_not_write_to_history(client, monkeypatch):
-    """/api/query ya no toca el historial de sesion (se movio a
-    /api/historial/visita) para evitar la condicion de carrera de cuatro
-    llamadas paralelas escribiendo la misma cookie."""
+def test_query_records_traceability_in_session_history(client, monkeypatch):
+    """RF-02.2 / CU-03: cada `/api/query` (consulta deliberada de un
+    indicador con explicacion) queda registrada en el historial de sesion
+    con la trazabilidad completa — indicador literal, fuente, extraccion y
+    marca de consulta. La pagina /history la renderiza en formato legible.
+    """
     monkeypatch.setattr("src.extractor.fetch_price_history", _fake_history)
     from src.extractor.cache import price_history_cache
 
@@ -166,5 +169,9 @@ def test_query_alone_does_not_write_to_history(client, monkeypatch):
 
     client.post("/api/query", json={"symbol": "SQM-B.SN", "indicator": "rsi", "days": 180})
 
-    hist = client.get("/history")
-    assert b"Aun no has realizado consultas" in hist.data or "Aún no has realizado consultas" in hist.data.decode()
+    body = client.get("/history").data.decode()
+    # Debe aparecer el nombre literal del indicador y el simbolo consultado
+    assert "SQM-B.SN" in body
+    assert "Índice de Fuerza Relativa (RSI)" in body
+    # Y no debe mostrar el mensaje de "aun no has realizado consultas"
+    assert "Aún no has realizado consultas" not in body

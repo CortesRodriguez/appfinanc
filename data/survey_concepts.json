@@ -1,0 +1,32 @@
+[
+  {
+    "id": "interes_real",
+    "label": "Interés real (poder de compra)",
+    "description": "La diferencia entre la rentabilidad nominal y la inflación."
+  },
+  {
+    "id": "interes_simple",
+    "label": "Interés simple",
+    "description": "Cómo se calcula la ganancia cuando el interés se aplica solo sobre el monto inicial."
+  },
+  {
+    "id": "diversificacion",
+    "label": "Diversificación de una cartera",
+    "description": "Por qué invertir en distintos instrumentos reduce el riesgo total."
+  },
+  {
+    "id": "volatilidad",
+    "label": "Volatilidad de un instrumento",
+    "description": "Qué significa que el precio se mueva mucho o poco en el tiempo."
+  },
+  {
+    "id": "rsi",
+    "label": "RSI (Índice de Fuerza Relativa)",
+    "description": "Cómo se interpretan valores altos y bajos del RSI en un activo."
+  },
+  {
+    "id": "tpm",
+    "label": "TPM (Tasa de Política Monetaria)",
+    "description": "Qué es la TPM y quién la fija en Chile."
+  }
+]

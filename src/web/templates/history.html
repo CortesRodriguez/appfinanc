@@ -1,26 +1,77 @@
 {% extends "base.html" %}
-{% block title %}Historial — appfint{% endblock %}
+{% block title %}Historial — Norte{% endblock %}
 
 {% block content %}
-<h1>Historial de consultas de la sesión</h1>
+<div class="page-header">
+  <h1>Historial de consultas de la sesión</h1>
+  <p class="lead">
+    Cada fila representa una explicación de un indicador que solicitaste en esta sesión.
+    Se guarda el nombre literal del indicador, la fuente del dato, la ventana temporal
+    y la fecha de consulta en hora chilena.
+  </p>
+</div>
 
-{% if history %}
-<table class="table">
-  <thead>
-    <tr><th>Instrumento</th><th>Indicador</th><th>Fecha/hora de extracción</th></tr>
-  </thead>
-  <tbody>
-    {% for item in history %}
-    <tr>
-      <td>{{ item.symbol }}</td>
-      <td>{{ item.indicators|join(', ') }}</td>
-      <td>{{ item.timestamp }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-<p class="meta">Se muestran hasta las últimas {{ history|length }} consultas de esta sesión.</p>
+{% if queries %}
+<section class="card table-card">
+  <div class="table-scroll">
+    <table class="table trace-table">
+      <thead>
+        <tr>
+          <th>Instrumento</th>
+          <th>Indicador</th>
+          <th class="num">Valor</th>
+          <th>Riesgo</th>
+          <th>Fuente</th>
+          <th class="num">Ventana</th>
+          <th>Consultado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in queries %}
+        <tr>
+          <td data-label="Instrumento"><span class="tickr">{{ q.symbol }}</span></td>
+          <td data-label="Indicador" class="col-indicador">{{ q.indicator_label }}</td>
+          <td data-label="Valor" class="num">{{ q.value }} <span class="unit">{{ q.unit }}</span></td>
+          <td data-label="Riesgo"><span class="badge badge-small {{ q.risk_level }}">{{ q.risk_level }}</span></td>
+          <td data-label="Fuente" class="src">{{ q.source }}</td>
+          <td data-label="Ventana" class="num nowrap">{{ q.period_days }} días</td>
+          <td data-label="Consultado" class="mono col-consultado">{{ q.consulted_at | es_datetime }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="meta">Últimas {{ queries|length }} consultas de indicadores en esta sesión.</p>
+</section>
 {% else %}
-<p>Aún no has realizado consultas en esta sesión.</p>
+<section class="card">
+  <p>Aún no has solicitado explicaciones en esta sesión.</p>
+  <p class="meta">
+    Selecciona un instrumento del dashboard y presiona <strong>Ver explicación en simple</strong>
+    en la card de un indicador. Cada consulta queda registrada aquí con su trazabilidad completa.
+  </p>
+</section>
+{% endif %}
+
+{% if visits %}
+<section class="card table-card">
+  <h2 class="section-title">Instrumentos visitados</h2>
+  <p class="meta">Instrumentos que abriste en el dashboard esta sesión. Es un registro más amplio: puedes haber revisado el gráfico sin pedir explicación en cada indicador.</p>
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr><th>Instrumento</th><th>Abierto</th></tr>
+      </thead>
+      <tbody>
+        {% for v in visits %}
+        <tr>
+          <td data-label="Instrumento"><span class="tickr">{{ v.symbol }}</span></td>
+          <td data-label="Abierto" class="mono">{{ v.timestamp | es_datetime }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endif %}
 {% endblock %}

@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Revisión de coherencia — appfint{% endblock %}
+{% block title %}Revisión de coherencia — Norte{% endblock %}
 
 {% block content %}
 <h1>Revisión de coherencia semántica</h1>
-<p class="lead">Casos donde la validación automática comparó la explicación generada con el valor real del indicador (RF-13).</p>
+<p class="lead">Casos donde la validación automática comparó la explicación generada con el valor real del indicador.</p>
 
 <div class="filters">
   <a href="{{ url_for('web.admin_coherence', status='todos') }}" class="{{ 'active' if status_filter == 'todos' }}">Todos</a>

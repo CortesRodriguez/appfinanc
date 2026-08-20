@@ -1,11 +1,38 @@
 {% extends "base.html" %}
-{% block title %}appfint — finanzas en simple{% endblock %}
+{% block title %}Norte — Tu norte en la bolsa chilena{% endblock %}
 
 {% block content %}
+<div id="study-banner" class="study-banner hidden" role="region" aria-label="Invitación a responder la autoevaluación">
+  <div class="study-banner-body">
+    <strong>Ya alcanzaste las 5 consultas — la autoevaluación está lista.</strong>
+    <p>
+      Cuando te registraste aceptaste participar en la evaluación de comprensión de Norte.
+      Es una encuesta breve donde valorarás qué tan bien entendías algunos conceptos antes de usar
+      la app y qué tan bien los entiendes ahora. Tus respuestas se guardan de forma anónima.
+    </p>
+  </div>
+  <div class="study-banner-actions">
+    <a href="/encuesta" id="study-answer" class="btn primary">Responder ahora</a>
+    <button type="button" id="study-postpone" class="btn">Más tarde</button>
+  </div>
+</div>
+
 <div class="dashboard">
   <aside class="sidebar">
-    <input type="search" id="instrument-search" class="sidebar-search" placeholder="Buscar acción o ticker…" aria-label="Buscar instrumento">
-    <div id="lookup-hint" class="hidden"></div>
+    <div class="sidebar-sticky">
+      <input type="search" id="instrument-search" class="sidebar-search" placeholder="Buscar acción o ticker…" aria-label="Buscar instrumento">
+      <div id="lookup-hint" class="hidden"></div>
+      <div class="sidebar-sort">
+        <span class="sidebar-count"><span id="sidebar-count-num">30</span> acciones</span>
+        <select id="sort-select" class="sort-select" aria-label="Ordenar">
+          <option value="nombre">A-Z</option>
+          <option value="cambio_desc">Mayor variación ▲</option>
+          <option value="cambio_asc">Menor variación ▼</option>
+          <option value="precio_desc">Mayor precio</option>
+          <option value="precio_asc">Menor precio</option>
+        </select>
+      </div>
+    </div>
     <ul id="instrument-list" class="instrument-list" aria-label="Lista de instrumentos"></ul>
   </aside>
 
@@ -34,14 +61,69 @@
       <section class="card chart-card">
         <div class="chart-card-header">
           <h2>Tendencia · <span id="chart-period-label">6 meses</span></h2>
-          <div class="chart-legend">
-            <span class="legend-item"><i class="dot price"></i>Precio</span>
-            <span class="legend-item"><i class="dot ma-short"></i><span id="legend-ma-short">MA50</span></span>
-            <span class="legend-item"><i class="dot ma-long"></i><span id="legend-ma-long">MA200</span></span>
-          </div>
+          <label class="interval-select-label">
+            Intervalo:
+            <select id="interval-select" class="interval-select" aria-label="Intervalo de vela">
+              <option value="1d" selected>Diario</option>
+              <option value="1w">Semanal</option>
+              <option value="1mo">Mensual</option>
+              <option value="3mo">Trimestral</option>
+            </select>
+          </label>
+        </div>
+        <div class="indicator-toggles" role="group" aria-label="Indicadores visibles en el gráfico">
+          <span class="toggle-label">Indicadores:</span>
+          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="sma_short"> <span class="dot ma-short"></span> <span id="legend-ma-short">MA corta</span></label>
+          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="sma_long"> <span class="dot ma-long"></span> <span id="legend-ma-long">MA larga</span></label>
+          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="bollinger"> <span class="dot bollinger"></span> Bandas de Bollinger</label>
+          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="rsi"> <span class="dot rsi"></span> RSI</label>
+          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="macd" checked> <span class="dot macd"></span> MACD</label>
         </div>
         <div id="chart-loading" class="loading hidden"><span class="spinner"></span> Cargando gráfico…</div>
-        <div id="price-chart" role="img" aria-label="Gráfico de velas de precio"></div>
+        <div class="chart-container">
+          <div id="price-chart" role="img" aria-label="Gráfico de velas de precio"></div>
+          <div id="price-legend" class="chart-overlay hidden">
+            <div class="overlay-line overlay-title"><span id="ov-symbol"></span> · <span id="ov-date">—</span></div>
+            <div class="overlay-line overlay-ohlc">
+              <span>O <b id="ov-o">—</b></span>
+              <span>H <b id="ov-h">—</b></span>
+              <span>L <b id="ov-l">—</b></span>
+              <span>C <b id="ov-c">—</b></span>
+              <span id="ov-chg" class="ov-chg">—</span>
+            </div>
+            <div class="overlay-line overlay-ma hidden" id="ov-ma-line">
+              <span class="ov-ma-item hidden" id="ov-ma-short-wrap"><i class="dot ma-short"></i>MA<span id="ov-ma-short-w"></span> <b id="ov-ma-short">—</b></span>
+              <span class="ov-ma-item hidden" id="ov-ma-long-wrap"><i class="dot ma-long"></i>MA<span id="ov-ma-long-w"></span> <b id="ov-ma-long">—</b></span>
+              <span class="ov-ma-item hidden" id="ov-bb-wrap"><i class="dot bollinger"></i>BB <b id="ov-bb-lower">—</b> / <b id="ov-bb-middle">—</b> / <b id="ov-bb-upper">—</b></span>
+            </div>
+          </div>
+        </div>
+        <div id="rsi-panel" class="sub-chart-panel hidden">
+          <div class="sub-chart-header">
+            <span class="sub-chart-title">RSI (14)</span>
+            <span class="sub-chart-legend"><i class="ov-guide over"></i>70 sobrecompra · <i class="ov-guide mid"></i>50 · <i class="ov-guide under"></i>30 sobreventa</span>
+          </div>
+          <div class="chart-container">
+            <div id="rsi-chart" class="sub-chart"></div>
+            <div id="rsi-legend" class="chart-overlay chart-overlay-small hidden">
+              <span class="overlay-line">RSI(14) <b id="ov-rsi">—</b> <span id="ov-rsi-tag" class="ov-tag"></span></span>
+            </div>
+          </div>
+        </div>
+        <div id="macd-panel" class="sub-chart-panel">
+          <div class="sub-chart-header">
+            <span class="sub-chart-title">MACD (12, 26, 9)</span>
+            <span class="sub-chart-legend"><i class="dot macd-line"></i>MACD · <i class="dot macd-signal"></i>Señal · <i class="dot macd-hist-pos"></i>/<i class="dot macd-hist-neg"></i>Hist</span>
+          </div>
+          <div class="chart-container">
+            <div id="macd-chart" class="sub-chart"></div>
+            <div id="macd-legend" class="chart-overlay chart-overlay-small hidden">
+              <span class="overlay-line"><i class="dot macd-line"></i>MACD <b id="ov-macd">—</b></span>
+              <span class="overlay-line"><i class="dot macd-signal"></i>Señal <b id="ov-macd-sig">—</b></span>
+              <span class="overlay-line">Hist <b id="ov-macd-hist">—</b></span>
+            </div>
+          </div>
+        </div>
         <div id="chart-error" class="error hidden" role="alert"></div>
       </section>
 
@@ -69,14 +151,16 @@
     chart: "{{ url_for('web.api_chart') }}",
     lookup: "{{ url_for('web.api_lookup') }}",
     query: "{{ url_for('web.api_query') }}",
+    indicatorValue: "{{ url_for('web.api_indicator_value') }}",
     regenerate: "{{ url_for('web.api_regenerate') }}",
-    logVisit: "{{ url_for('web.api_log_visit') }}"
+    logVisit: "{{ url_for('web.api_log_visit') }}",
+    studyConsent: "{{ url_for('web.api_evaluation_consent') }}"
   };
   window.APP_INDICATORS = [
-    {"key": "medias_moviles", "title": "Tendencia", "sub": "MA50 vs MA200"},
+    {"key": "medias_moviles", "title": "Tendencia", "sub": "MA corta vs MA larga"},
     {"key": "rsi", "title": "RSI", "sub": "fuerza relativa · 0–100"},
-    {"key": "volatilidad", "title": "Volatilidad", "sub": "variación anualizada"},
-    {"key": "rentabilidad", "title": "Rentabilidad", "sub": "en el período consultado"}
+    {"key": "macd", "title": "MACD", "sub": "histograma · alcista/bajista"},
+    {"key": "bandas_bollinger", "title": "Bandas de Bollinger", "sub": "%B · rango habitual del precio"}
   ];
 </script>
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>

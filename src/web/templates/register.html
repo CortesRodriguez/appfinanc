@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Crear cuenta — appfint{% endblock %}
+{% block title %}Crear cuenta — Norte{% endblock %}
 
 {% block content %}
 <h1>Crear cuenta</h1>
-<p class="lead">Con una cuenta, appfint recuerda qué indicadores te cuestan más y te muestra un resumen personalizado de tu aprendizaje.</p>
+<p class="lead">Con una cuenta, Norte recuerda qué indicadores te cuestan más y te muestra un resumen personalizado de tu aprendizaje.</p>
 
 <form id="register-form" class="card">
   <div class="field">
@@ -18,6 +18,17 @@
     <label for="password">Contraseña</label>
     <input type="password" id="password" name="password" minlength="8" required>
     <span class="meta">Mínimo 8 caracteres.</span>
+  </div>
+  <div class="field consent-field">
+    <label class="consent-label">
+      <input type="checkbox" id="acepta_evaluacion" name="acepta_evaluacion">
+      <span>
+        <strong>Acepto participar en la evaluación de comprensión del sistema.</strong>
+        Es opcional. Si marcas esta casilla, al completar 5 consultas se te ofrecerá una encuesta breve
+        y anónima sobre cómo cambió tu comprensión de los indicadores financieros antes y después de usar Norte.
+        Tus respuestas se guardan sin quedar vinculadas a tu cuenta.
+      </span>
+    </label>
   </div>
   <button type="submit">Crear cuenta</button>
 </form>

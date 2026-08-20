@@ -1,33 +1,55 @@
 {% extends "base.html" %}
-{% block title %}Reporte comparativo — appfint{% endblock %}
+{% block title %}Reporte comparativo — Norte{% endblock %}
 
 {% block content %}
-<h1>Reporte comparativo de comprensión</h1>
+<h1>Reporte de autoevaluación retrospectiva</h1>
+
+<p class="muted">
+  Cada respuesta es anónima: se identifica únicamente por un token propio generado
+  al enviar la encuesta, sin vinculación con ninguna cuenta ni sesión.
+</p>
 
 {% if report.summary %}
 <div class="card summary-grid">
-  <div><strong>Participantes con pre y post</strong><span>{{ report.summary.participants }}</span></div>
-  <div><strong>Promedio pre-test</strong><span>{{ report.summary.avg_pre_score }} / {{ report.summary.total_questions }}</span></div>
-  <div><strong>Promedio post-test</strong><span>{{ report.summary.avg_post_score }} / {{ report.summary.total_questions }}</span></div>
-  <div><strong>Mejora promedio</strong><span>{{ report.summary.avg_delta }}</span></div>
+  <div><strong>Respuestas completas</strong><span>{{ report.summary.participants }}</span></div>
+  <div><strong>Auto-percepción promedio antes</strong><span>{{ report.summary.avg_before }} / 5</span></div>
+  <div><strong>Auto-percepción promedio ahora</strong><span>{{ report.summary.avg_now }} / 5</span></div>
+  <div><strong>Delta subjetivo promedio</strong><span>{{ report.summary.avg_delta }}</span></div>
 </div>
 
 <a class="button" href="{{ url_for('web.admin_report_export') }}">Exportar resultados en CSV</a>
 
+<h2>Detalle por concepto</h2>
 <table class="table">
-  <thead><tr><th>Sesión (anónima)</th><th>Pre</th><th>Post</th><th>Δ</th></tr></thead>
+  <thead><tr><th>Concepto</th><th>Antes</th><th>Ahora</th><th>Δ</th><th>n</th></tr></thead>
+  <tbody>
+    {% for c in report.by_concept %}
+    <tr>
+      <td>{{ c.label }}</td>
+      <td>{{ c.avg_before }}</td>
+      <td>{{ c.avg_now }}</td>
+      <td>{{ c.avg_delta }}</td>
+      <td>{{ c.n }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Detalle por respuesta anónima</h2>
+<table class="table">
+  <thead><tr><th>Token</th><th>Antes</th><th>Ahora</th><th>Δ</th></tr></thead>
   <tbody>
     {% for row in report.rows %}
     <tr>
-      <td>{{ row.session_id[:8] }}…</td>
-      <td>{{ row.pre_score }}</td>
-      <td>{{ row.post_score }}</td>
-      <td>{{ row.delta }}</td>
+      <td>{{ row.response_token[:8] }}…</td>
+      <td>{{ row.avg_before }}</td>
+      <td>{{ row.avg_now }}</td>
+      <td>{{ row.avg_delta }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 {% else %}
-<p>Aún no hay suficientes datos (se requieren participantes con encuesta previa y posterior completas) para generar el reporte.</p>
+<p>Aún no hay respuestas completas registradas.</p>
 {% endif %}
 {% endblock %}

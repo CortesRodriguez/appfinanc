@@ -23,7 +23,7 @@ def test_authenticated_visit_is_attributed_to_user_profile(client, monkeypatch):
     # Seleccionar un instrumento en el dashboard = una visita, aunque por
     # detras dispare cuatro consultas (una por indicador) via /api/query.
     client.post("/api/historial/visita", json={"symbol": "SQM-B.SN"}, headers=headers)
-    for indicator in ("volatilidad", "rsi", "medias_moviles", "rentabilidad"):
+    for indicator in ("bandas_bollinger", "rsi", "medias_moviles", "macd"):
         client.post("/api/query", json={"symbol": "SQM-B.SN", "indicator": indicator, "days": 180}, headers=headers)
 
     response = client.get("/api/perfil", headers=headers)
@@ -46,7 +46,7 @@ def test_total_queries_counts_visits_plus_explicit_regenerations(client, monkeyp
 
     client.post("/api/historial/visita", json={"symbol": "SQM-B.SN"}, headers=headers)
     results = {}
-    for indicator in ("volatilidad", "rsi", "medias_moviles", "rentabilidad"):
+    for indicator in ("bandas_bollinger", "rsi", "medias_moviles", "macd"):
         results[indicator] = client.post(
             "/api/query", json={"symbol": "SQM-B.SN", "indicator": indicator, "days": 180}, headers=headers
         ).get_json()
@@ -83,7 +83,7 @@ def test_regeneration_count_identifies_hardest_indicator(client, monkeypatch):
         headers=headers,
     )
     client.post(
-        "/api/query", json={"symbol": "SQM-B.SN", "indicator": "rentabilidad", "days": 180}, headers=headers
+        "/api/query", json={"symbol": "SQM-B.SN", "indicator": "macd", "days": 180}, headers=headers
     )
 
     profile = client.get("/api/perfil", headers=headers).get_json()

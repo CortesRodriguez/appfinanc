@@ -1,6 +1,7 @@
 """Modulo Presentador: rutas del Controlador Web (RF-07 a RF-15, CU-01 a CU-10)."""
 
 import json
+import math
 import os
 import time
 import uuid
@@ -9,12 +10,14 @@ from datetime import datetime, timezone
 from flask import Blueprint, Response, current_app, jsonify, render_template, request, session
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 
+from src.auth.models import User
 from src.extensions import db
 from src.extractor import ExtractionError, VALID_PERIODS, get_indicator, get_macro_indicators, get_price_series, get_quotes
 from src.nlp import generate_explanation, regenerate_explanation, validate_coherence
 from src.nlp.glossary import list_terms, search_terms
 from src.evaluation.models import CoherenceCheck, InstrumentVisit, QueryLog
 from src.evaluation import ensure_evaluation_session, surveys
+from src.evaluation.eligibility import is_eligible_for_survey
 from src.evaluation.reports import build_comparative_report, export_report_csv
 from src.profile.service import get_detail_level
 from src.constants import INDICATOR_LABELS
@@ -70,18 +73,71 @@ def _current_user_id():
 
 
 def _push_history(symbol: str, indicator_labels: list, timestamp: str):
-    """Registra una consulta en el historial de sesion (RF-10).
+    """Registra una visita al instrumento en la sesion (RF-10).
 
     Se llama una unica vez por seleccion de instrumento (ver
-    `/api/historial/visita`), nunca desde `/api/query`: ese endpoint lo
-    llama el dashboard cuatro veces en paralelo (una por indicador) y
-    mezclar el historial ahi generaba una condicion de carrera sobre la
-    cookie de sesion (lecturas/escrituras concurrentes se pisaban entre
-    si), resultando en mas filas de las esperadas.
+    `/api/historial/visita`). Antes se le llamaba desde `/api/query`, pero
+    el dashboard ahora golpea `/api/query` unicamente cuando la usuaria
+    pulsa "Ver explicacion en simple" en una card — ver `_push_query`.
     """
     history = session.get("history", [])
     history.insert(0, {"symbol": symbol, "indicators": indicator_labels, "timestamp": timestamp})
     session["history"] = history[: current_app.config["HISTORY_MAX_ITEMS"]]
+
+
+def _push_query(entry: dict):
+    """Registra en la sesion una consulta de explicacion (RF-02.2 / CU-03).
+
+    A diferencia de `_push_history` (que registra visitas al instrumento
+    para RF-10), este historial guarda una fila POR consulta explicita de
+    un indicador — es la unidad de trazabilidad de RF-02.2: incluye el
+    nombre literal del indicador, la fuente (Yahoo/Alpha Vantage), la
+    ventana pedida, la marca de extraccion del dato y la marca de consulta.
+
+    Se muestra en `/history` como tabla legible.
+    """
+    queries = session.get("queries", [])
+    queries.insert(0, entry)
+    session["queries"] = queries[: current_app.config["HISTORY_MAX_ITEMS"]]
+
+
+# Meses en espanol para formateo "13:25:45 - 28 de agosto de 2026" sin
+# depender de la locale del sistema (que en macOS/Linux es inconsistente).
+_MONTHS_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
+
+# La app se usa desde Chile: guardamos las marcas de tiempo en UTC (ISO)
+# para portabilidad, pero al renderizarlas en /history las convertimos a
+# hora local (America/Santiago = UTC-4 invierno / UTC-3 verano, con
+# transiciones DST manejadas por zoneinfo). Es lo que hace que la fila
+# diga "15:24:30" cuando el reloj local marca 15:24:30, no la hora UTC.
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+    _CHILE_TZ = ZoneInfo("America/Santiago")
+except Exception:  # noqa: BLE001 - fallback si tzdata no esta disponible
+    _CHILE_TZ = timezone.utc
+
+
+def _format_datetime_es(iso: str) -> str:
+    """Convierte una fecha ISO (UTC) al formato de RF-02.2 en hora local
+    chilena: `HH:MM:SS - dd de mes de yyyy`. Se aplica en el template del
+    historial de consultas via el filtro Jinja `es_datetime`.
+    """
+    if not iso:
+        return "—"
+    try:
+        raw = iso.replace("Z", "+00:00") if isinstance(iso, str) else iso
+        dt_obj = datetime.fromisoformat(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return str(iso)
+    # Si el timestamp no trae tz (naive), asumimos UTC — es lo que produce
+    # `datetime.now(timezone.utc)` cuando se serializa con isoformat() sin +00:00.
+    if dt_obj.tzinfo is None:
+        dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+    local = dt_obj.astimezone(_CHILE_TZ)
+    return f"{local:%H:%M:%S} - {local.day} de {_MONTHS_ES[local.month]} de {local.year}"
 
 
 @bp.route("/")
@@ -180,6 +236,7 @@ def api_chart():
     """Serie de precios + MA50/MA200 para el grafico de tendencia."""
     symbol = request.args.get("symbol", "")
     days = int(request.args.get("days", 365))
+    interval = request.args.get("interval", "1d")
 
     if not symbol:
         return jsonify({"error": "Debes indicar un instrumento."}), 400
@@ -188,6 +245,7 @@ def api_chart():
         series = get_price_series(
             symbol,
             days=days,
+            interval=interval,
             alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
             cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
         )
@@ -261,6 +319,16 @@ def _run_query(symbol, indicator, days, variant=0, detail_level="estandar"):
 
 
 def _log_and_validate(session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=None, is_regeneration=False):
+    # Guardarrail: si el valor del indicador es NaN (por precios huecos en la
+    # fuente) el INSERT en coherence_checks fallaba con NOT NULL constraint y
+    # Flask devolvia HTML 500 al frontend ("Unexpected token '<'"). Se ataca
+    # tambien en `_to_series` y `_fetch_yahoo`; esta es la ultima defensa antes
+    # de tocar la BD, y ademas convierte el NaN en un ExtractionError amigable
+    # que el JS ya sabe mostrar como banner.
+    val = indicator_data.get("value")
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        raise ExtractionError("No hay datos suficientes para calcular este indicador en este momento.")
+
     db.session.add(
         QueryLog(
             session_id=session_id,
@@ -307,13 +375,42 @@ def api_query():
 
     try:
         indicator_data, explanation, elapsed_ms = _run_query(symbol, indicator, days, variant=0, detail_level=detail_level)
+        coherent, reason = _log_and_validate(
+            session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=False
+        )
     except ExtractionError as exc:
-        # RF-09.1: mensaje de error comprensible cuando no se puede obtener el indicador
+        # RF-09.1: mensaje de error comprensible cuando no se puede obtener el indicador.
+        # Tambien atrapa el guardarrail de _log_and_validate cuando el valor viene NaN.
+        db.session.rollback()
         return jsonify({"error": str(exc)}), 502
 
-    coherent, reason = _log_and_validate(
-        session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=False
+    # RF-02.2 / CU-03: la consulta explicita queda registrada en la sesion
+    # con toda la info de trazabilidad, para mostrarla en /history.
+    _push_query(
+        {
+            "symbol": symbol,
+            "indicator": indicator,
+            "indicator_label": INDICATOR_LABELS.get(indicator, indicator),
+            "value": indicator_data["value"],
+            "unit": indicator_data["unit"],
+            "risk_level": indicator_data["risk_level"],
+            "source": indicator_data["source"],
+            "extracted_at": indicator_data["extracted_at"],
+            "consulted_at": datetime.now(timezone.utc).isoformat(),
+            "period_days": indicator_data.get("period_days", days),
+            "coherent": coherent,
+        }
     )
+
+    # Instrumento 1: señalar al frontend si esta cuenta consintió al
+    # registrarse (acepta_evaluacion=True) Y ya cumplió el umbral de
+    # exposición. En ese caso el banner del dashboard invita a responder la
+    # encuesta retrospectiva. Los usuarios sin consentimiento no ven nada.
+    invitacion_estudio = None
+    if user_id and is_eligible_for_survey(user_id):
+        user = db.session.get(User, user_id)
+        if user and user.acepta_evaluacion is True:
+            invitacion_estudio = "mostrar"
 
     return jsonify(
         {
@@ -331,6 +428,8 @@ def api_query():
             "coherent": coherent,
             "readability_score": explanation["readability_score"],
             "trend": indicator_data.get("trend"),
+            "signal": indicator_data.get("signal"),
+            "invitacion_estudio": invitacion_estudio,
         }
     )
 
@@ -360,12 +459,12 @@ def api_regenerate():
             indicator_data, previous_variant, use_finbert=current_app.config["USE_FINBERT"], detail_level=detail_level
         )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        coherent, reason = _log_and_validate(
+            session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=True
+        )
     except ExtractionError as exc:
+        db.session.rollback()
         return jsonify({"error": str(exc)}), 502
-
-    coherent, reason = _log_and_validate(
-        session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=True
-    )
 
     same_as_before = explanation["variant"] == previous_variant
     return jsonify(
@@ -377,6 +476,7 @@ def api_regenerate():
             "unit": indicator_data["unit"],
             "risk_level": indicator_data["risk_level"],
             "trend": indicator_data.get("trend"),
+            "signal": indicator_data.get("signal"),
             "explanation": explanation["text"],
             "variant": explanation["variant"],
             "coherent": coherent,
@@ -385,9 +485,70 @@ def api_regenerate():
     )
 
 
+@bp.route("/api/indicador/valor")
+def api_indicator_value():
+    """Version ligera y sin traza para el fetch inicial del dashboard.
+
+    A diferencia de /api/query, este endpoint NO genera explicacion, NO corre
+    FinBERT y NO escribe en `query_logs` ni `coherence_checks`. Solo calcula
+    el valor del indicador (usa el mismo cache TTL de precios) y lo devuelve.
+
+    El objetivo es soportar el flujo "explicaciones bajo demanda" del
+    dashboard (RF-02.2 / CU-03): al hacer click en una accion se cargan los
+    4 valores rapido con este endpoint; cada QueryLog persistido corresponde
+    a un click posterior en el boton "Ver explicacion en simple" de una card,
+    dandole semantica real a la traza — es una consulta deliberada, no un
+    batch automatico.
+    """
+    symbol = request.args.get("symbol", "")
+    indicator = request.args.get("indicator", "")
+    try:
+        days = int(request.args.get("days", 90))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Parametro 'days' invalido."}), 400
+
+    if not symbol or not indicator:
+        return jsonify({"error": "Debes indicar 'symbol' e 'indicator'."}), 400
+
+    try:
+        data = get_indicator(
+            symbol,
+            indicator,
+            days=days,
+            alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
+            cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
+        )
+    except ExtractionError as exc:
+        return jsonify({"error": str(exc)}), 502
+
+    val = data.get("value")
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return jsonify({"error": "No hay datos suficientes para calcular este indicador."}), 502
+
+    return jsonify(
+        {
+            "symbol": symbol,
+            "indicator": indicator,
+            "indicator_label": INDICATOR_LABELS.get(indicator, indicator),
+            "value": data["value"],
+            "unit": data["unit"],
+            "risk_level": data["risk_level"],
+            "source": data["source"],
+            "extracted_at": data["extracted_at"],
+            "period_days": data["period_days"],
+            "trend": data.get("trend"),
+            "signal": data.get("signal"),
+        }
+    )
+
+
 @bp.route("/history")
 def history():
-    return render_template("history.html", history=session.get("history", []))
+    return render_template(
+        "history.html",
+        queries=session.get("queries", []),
+        visits=session.get("history", []),
+    )
 
 
 @bp.route("/glosario")
@@ -401,47 +562,89 @@ def api_glossary_search():
     return jsonify(search_terms(query))
 
 
-@bp.route("/encuesta/<phase>", methods=["GET"])
-def survey_page(phase):
-    if phase not in ("pre", "post"):
-        return "Fase de encuesta invalida", 404
+@bp.route("/encuesta", methods=["GET"])
+def survey_page():
+    """Instrumento 1 — Autoevaluación Retrospectiva.
 
-    session_id = _get_session_id()
-    if phase == "post" and not surveys.has_completed_phase(session_id, "pre"):
-        # Excepcion 1, CU-07: no completo pre-test previamente
-        return render_template("survey.html", phase=phase, questions=[], blocked=True)
+    Requiere que la persona (a) esté autenticada, (b) haya alcanzado el
+    umbral de exposición (`SURVEY_THRESHOLD` visitas) y (c) haya consentido
+    participar. Si algo falla, se redirige al dashboard con motivo.
+    """
+    user_id = _current_user_id()
+    if not user_id:
+        return render_template("survey.html", concepts=[], blocked_reason="anonimo")
 
-    already_done = surveys.has_completed_phase(session_id, phase)
-    return render_template(
-        "survey.html", phase=phase, questions=surveys.get_questions(), blocked=False, already_done=already_done
-    )
+    if not is_eligible_for_survey(user_id):
+        return render_template("survey.html", concepts=[], blocked_reason="umbral")
+
+    user = db.session.get(User, user_id)
+    if not user or user.acepta_evaluacion is not True:
+        return render_template("survey.html", concepts=[], blocked_reason="sin_consentimiento")
+
+    return render_template("survey.html", concepts=surveys.get_concepts(), blocked_reason=None)
 
 
-@bp.route("/api/encuesta/<phase>", methods=["POST"])
-def api_survey_submit(phase):
-    if phase not in ("pre", "post"):
-        return jsonify({"error": "Fase invalida"}), 400
+@bp.route("/api/encuesta", methods=["POST"])
+def api_survey_submit():
+    """Recibe la autoevaluación retrospectiva y la persiste de forma anónima.
 
-    session_id = _get_session_id()
+    La respuesta se guarda con un `response_token` nuevo, sin `user_id`
+    ni `session_id`. Aunque este endpoint verifica que la persona haya
+    consentido, ese chequeo se hace SOLO para autorización — el `user_id`
+    no se propaga a la fila persistida (`surveys.submit_survey` no lo
+    acepta como parámetro por diseño).
+    """
+    user_id = _current_user_id()
+    if not user_id:
+        return jsonify({"error": "Debes iniciar sesión para responder la encuesta."}), 403
 
-    if phase == "post" and not surveys.has_completed_phase(session_id, "pre"):
-        return jsonify({"error": "Debes completar la encuesta pre-test antes de responder el post-test."}), 409
+    if not is_eligible_for_survey(user_id):
+        return jsonify({"error": "La encuesta se habilita después de al menos 5 consultas."}), 403
+
+    user = db.session.get(User, user_id)
+    if not user or user.acepta_evaluacion is not True:
+        return jsonify({"error": "No has aceptado participar en el estudio."}), 403
 
     answers = request.get_json(silent=True) or {}
-    score, total, missing = surveys.submit_survey(session_id, phase, answers)
+    try:
+        result = surveys.submit_survey(answers)
+    except surveys.SurveyValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    if missing:
-        return jsonify({"error": "Faltan preguntas por responder.", "missing": missing}), 400
-
-    result = {"score": score, "total": total}
-
-    if phase == "post":
-        pre_score = surveys.get_score(session_id, "pre")
-        if pre_score:
-            result["pre_score"] = pre_score["correct"]
-            result["delta"] = score - pre_score["correct"]
+    if "missing" in result:
+        return jsonify({"error": "Faltan conceptos por responder.", "missing": result["missing"]}), 400
 
     return jsonify(result)
+
+
+@bp.route("/api/evaluacion/consentimiento", methods=["POST"])
+def api_evaluation_consent():
+    """Registra la decisión de la persona sobre participar en el estudio.
+
+    Payload: `{ "acepta": true|false }`. Solo modifica `User.acepta_evaluacion`,
+    nada más. La respuesta incluye la URL a la encuesta cuando `acepta=true`,
+    para que el frontend redirija sin necesidad de otro round-trip.
+    """
+    user_id = _current_user_id()
+    if not user_id:
+        return jsonify({"error": "Debes iniciar sesión."}), 403
+
+    payload = request.get_json(silent=True) or {}
+    acepta = payload.get("acepta")
+    if not isinstance(acepta, bool):
+        return jsonify({"error": "Debes indicar 'acepta' como true o false."}), 400
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "Cuenta no encontrada."}), 404
+
+    user.acepta_evaluacion = acepta
+    db.session.commit()
+
+    response = {"acepta_evaluacion": user.acepta_evaluacion}
+    if acepta:
+        response["redirect"] = "/encuesta"
+    return jsonify(response)
 
 
 @bp.route("/admin/coherencia")
