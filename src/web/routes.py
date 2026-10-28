@@ -1,42 +1,24 @@
 """Modulo Presentador: rutas del Controlador Web (RF-07 a RF-10, CU-01 a CU-05)."""
 
-import json
-import math
-import os
 import time
-import uuid
 from datetime import datetime, timezone
 
-from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 
-from src.extensions import db
-from src.extractor import MAX_SYMBOL_LENGTH, ExtractionError, VALID_PERIODS, get_company_news, get_indicator, get_macro_indicators, get_market_news, get_price_series, get_quotes
-from src.nlp import generate_explanation, regenerate_explanation, validate_coherence
-from src.nlp.glossary import list_terms, search_terms
-from src.profile.models import InstrumentVisit, QueryLog
-from src.nlp.levels import DEFAULT_LEVEL
-from src.profile.service import get_detail_level, preferred_variant, recent_visits
+from src.catalog import INSTRUMENTS, resolve_display_name
 from src.constants import INDICATOR_LABELS
+from src.extensions import db
+from src.extractor import MAX_SYMBOL_LENGTH, ExtractionError, VALID_PERIODS, get_company_news, get_macro_indicators, get_market_news, get_price_series, get_quotes
+from src.nlp.glossary import list_terms, search_terms
+from src.nlp.levels import DEFAULT_LEVEL
+from src.profile.models import InstrumentVisit
+from src.profile.service import get_detail_level, preferred_variant, recent_visits
+from src.services.query_service import fetch_indicator, get_session_id, has_value, log_and_validate, run_query
 
 bp = Blueprint("web", __name__)
 
 SPARKLINE_POINTS = 30
-
-_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
-
-try:
-    with open(os.path.join(_DATA_DIR, "instruments.json"), encoding="utf-8") as f:
-        INSTRUMENTS = json.load(f)
-except FileNotFoundError:
-    INSTRUMENTS = []
-
-
-def _get_session_id():
-    if "sid" not in session:
-        session["sid"] = str(uuid.uuid4())
-    return session["sid"]
-
 
 @bp.before_app_request
 def _ensure_session_cookie():
@@ -52,7 +34,7 @@ def _ensure_session_cookie():
     exista esa ventana de carrera: para cuando el dashboard hace su
     primera llamada por AJAX, la cookie de sesion ya esta establecida.
     """
-    _get_session_id()
+    get_session_id()
 
 
 def _current_user_id():
@@ -120,7 +102,7 @@ def index():
     recent_stocks = []
     if user_id:
         recent_stocks = [
-            {"symbol": v["instrument"], "name": _resolve_display_name(v["instrument"])}
+            {"symbol": v["instrument"], "name": resolve_display_name(v["instrument"])}
             for v in recent_visits(user_id, limit=5)
         ]
     return render_template(
@@ -326,69 +308,6 @@ def api_log_visit():
     return jsonify({"ok": True})
 
 
-def _resolve_display_name(symbol: str) -> str:
-    """Nombre de empresa para el ticker dado, o el ticker limpio como fallback."""
-    return next(
-        (inst["name"] for inst in INSTRUMENTS if inst["symbol"] == symbol),
-        symbol.replace(".SN", ""),
-    )
-
-
-def _run_query(symbol, indicator, days, variant=0, detail_level=DEFAULT_LEVEL):
-    started = time.perf_counter()
-    indicator_data = get_indicator(
-        symbol,
-        indicator,
-        days=days,
-        alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
-        cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
-    )
-    explanation = generate_explanation(
-        indicator_data,
-        variant=variant,
-        use_finbert=current_app.config["USE_FINBERT"],
-        detail_level=detail_level,
-        display_name=_resolve_display_name(symbol),
-        use_llm=current_app.config.get("USE_LLM", False),
-        llm_api_key=current_app.config.get("GROQ_API_KEY", ""),
-    )
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
-    return indicator_data, explanation, elapsed_ms
-
-
-def _log_and_validate(session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=None, is_regeneration=False):
-    # Guardarrail: si el valor del indicador es NaN (por precios huecos en la
-    # fuente) Flask devolvia HTML 500 al frontend ("Unexpected token '<'").
-    # Se ataca tambien en `_to_series` y `_fetch_yahoo`; esta es la ultima
-    # defensa antes de tocar la BD, y ademas convierte el NaN en un ExtractionError amigable
-    # que el JS ya sabe mostrar como banner.
-    val = indicator_data.get("value")
-    if val is None or (isinstance(val, float) and math.isnan(val)):
-        raise ExtractionError("No hay datos suficientes para calcular este indicador en este momento.")
-
-    db.session.add(
-        QueryLog(
-            session_id=session_id,
-            instrument=symbol,
-            indicator=indicator,
-            source=indicator_data["source"],
-            processing_time_ms=elapsed_ms,
-            user_id=user_id,
-            is_regeneration=is_regeneration,
-            explanation_text=explanation["text"],
-            variant=explanation["variant"],
-            value=indicator_data["value"],
-            unit=indicator_data.get("unit"),
-            risk_level=indicator_data.get("risk_level"),
-            period_days=indicator_data.get("period_days"),
-        )
-    )
-
-    db.session.commit()
-    coherent, reason = validate_coherence(indicator_data, explanation["text"])
-    return coherent, reason
-
-
 @bp.route("/api/query", methods=["POST"])
 def api_query():
     payload = request.get_json(silent=True) or {}
@@ -396,20 +315,20 @@ def api_query():
     indicator = payload.get("indicator", "")
     days = int(payload.get("days", 90))
 
-    session_id = _get_session_id()
+    session_id = get_session_id()
     user_id = _current_user_id()
     detail_level = get_detail_level(user_id, indicator) if user_id else DEFAULT_LEVEL
     # RF-13.2: la consulta parte en la redaccion en la que este usuario suele quedarse.
     variant = (preferred_variant(user_id, indicator) or 0) if user_id else 0
 
     try:
-        indicator_data, explanation, elapsed_ms = _run_query(symbol, indicator, days, variant=variant, detail_level=detail_level)
-        coherent, reason = _log_and_validate(
+        indicator_data, explanation, elapsed_ms = run_query(symbol, indicator, days, detail_level=detail_level, variant=variant)
+        coherent, reason = log_and_validate(
             session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=False
         )
     except ExtractionError as exc:
         # RF-09.1: mensaje de error comprensible cuando no se puede obtener el indicador.
-        # Tambien atrapa el guardarrail de _log_and_validate cuando el valor viene NaN.
+        # Tambien atrapa el guardarrail de log_and_validate cuando el valor viene NaN.
         db.session.rollback()
         return jsonify({"error": str(exc)}), 502
 
@@ -447,29 +366,15 @@ def api_regenerate():
     except (TypeError, ValueError):
         return jsonify({"error": "Parametro 'days' o 'previous_variant' invalido."}), 400
 
-    session_id = _get_session_id()
+    session_id = get_session_id()
     user_id = _current_user_id()
     detail_level = get_detail_level(user_id, indicator) if user_id else DEFAULT_LEVEL
 
     try:
-        started = time.perf_counter()
-        indicator_data = get_indicator(
-            symbol,
-            indicator,
-            days=days,
-            alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
-            cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
+        indicator_data, explanation, elapsed_ms = run_query(
+            symbol, indicator, days, detail_level=detail_level, previous_variant=previous_variant
         )
-        explanation = regenerate_explanation(
-            indicator_data, previous_variant,
-            use_finbert=current_app.config["USE_FINBERT"],
-            detail_level=detail_level,
-            display_name=_resolve_display_name(symbol),
-            use_llm=current_app.config.get("USE_LLM", False),
-            llm_api_key=current_app.config.get("GROQ_API_KEY", ""),
-        )
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        coherent, reason = _log_and_validate(
+        coherent, reason = log_and_validate(
             session_id, symbol, indicator, indicator_data, explanation, elapsed_ms, user_id=user_id, is_regeneration=True
         )
     except ExtractionError as exc:
@@ -523,18 +428,11 @@ def api_indicator_value():
         return jsonify({"error": "Debes indicar 'symbol' e 'indicator'."}), 400
 
     try:
-        data = get_indicator(
-            symbol,
-            indicator,
-            days=days,
-            alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
-            cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
-        )
+        data = fetch_indicator(symbol, indicator, days)
     except ExtractionError as exc:
         return jsonify({"error": str(exc)}), 502
 
-    val = data.get("value")
-    if val is None or (isinstance(val, float) and math.isnan(val)):
+    if not has_value(data):
         return jsonify({"error": "No hay datos suficientes para calcular este indicador."}), 502
 
     return jsonify(

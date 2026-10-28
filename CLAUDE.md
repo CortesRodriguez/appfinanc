@@ -45,6 +45,7 @@ extractor/   — fetches and caches price data; computes financial indicators
 nlp/         — generates Spanish natural-language explanations from indicator dicts
 auth/        — JWT-in-cookie login (Flask-JWT-Extended + Flask-Bcrypt)
 profile/     — adaptive detail-level based on per-user regeneration history; owns the QueryLog and InstrumentVisit models
+services/    — query_service.py: shared indicator → explanation → QueryLog flow used by web and profile routes
 web/         — Flask Blueprint (routes.py), Jinja2 templates, CSS, JS
 ```
 
@@ -84,4 +85,4 @@ The news block (`extractor/news.py`) pulls headlines from the unofficial Google 
 
 ### Catalog and instruments
 
-`data/instruments.json` lists the 30 IPSA constituents with `.SN` suffix for Yahoo Finance. IPSA itself (`^IPSA`) is shown in the ticker tape only — it is not in the catalog and cannot be queried individually. Any other ticker can be queried ad-hoc via `/api/lookup` (uses `get_price_series` with 90 days as a probe) without being added to the catalog.
+`data/instruments.json` (loaded by `src/catalog.py`) lists the 30 IPSA constituents with `.SN` suffix for Yahoo Finance. IPSA itself (`^IPSA`) is shown in the ticker tape only — it is not in the catalog and cannot be queried individually. Any other ticker can be queried ad-hoc via `/api/lookup` (uses `get_price_series` with 90 days as a probe) without being added to the catalog.

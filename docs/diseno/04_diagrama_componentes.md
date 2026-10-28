@@ -145,7 +145,7 @@ end note
 
 | Componente del diagrama | Archivo / módulo real |
 |---|---|
-| Enrutar Consulta y Regenerar Explicación | `src/web/routes.py:api_query`, `api_regenerate`, `_run_query`, `_log_and_validate` |
+| Enrutar Consulta y Regenerar Explicación | `src/web/routes.py:api_query`, `api_regenerate`; `src/profile/routes.py:api_profile_regenerate`; flujo común en `src/services/query_service.py:run_query`, `log_and_validate` |
 | Registro Cuenta Nueva | `src/auth/routes.py:api_register` + `src/auth/service.py:register_user` |
 | Iniciar / Cerrar Sesión | `src/auth/routes.py:api_login`, `api_logout` + `authenticate_user` |
 | Obtener Precios | `src/extractor/sources.py:fetch_price_history` |
@@ -178,7 +178,7 @@ Estas son inconsistencias entre las reglas de diseño y el código actual. **No 
 
 1. **Acceso al ORM difuso**. Nueve archivos de `src/` importan `db` de `src.extensions` y ocho llaman `db.session.*` directamente en distintas capas (services, routes, `__init__.py`). Un patrón *Repository* centralizado en `src/repositories/` reduciría la superficie de acceso a la persistencia a un único punto. Costo estimado: 1-2 días; ~15 archivos afectados. Los ejemplos de referencia de proyectos aprobados en la carrera tampoco cumplen esta regla, por lo que la deuda es aceptable en el marco del prototipo.
 
-2. **Doble punto de orquestación**. `src/profile/routes.py` (líneas 10-14) importa `get_indicator` y `generate_explanation`, replicando la orquestación de `src/web/routes.py`. El diagrama de arriba muestra el diseño objetivo (un solo Presentador orquestando `Perfil Adaptativo`), pero en el código hay dos routes que orquestan. Refactor sugerido: extraer `src/services/query_service.py` con `run_query()` y `regenerate()`; ambos routes delegan allí. Costo estimado: medio día.
+2. ~~**Doble punto de orquestación**~~ (resuelta). `src/web/routes.py` y `src/profile/routes.py` repetían el flujo indicador → explicación → registro. Ahora ambos delegan en `src/services/query_service.py` (`run_query`, `log_and_validate`), y el catálogo de instrumentos vive en `src/catalog.py`. Ya no hay imports de `src.web` desde `src.profile`.
 
 ## Cómo renderizar este diagrama
 

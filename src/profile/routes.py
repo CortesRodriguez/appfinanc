@@ -1,6 +1,5 @@
 """Rutas del perfil de aprendizaje (RF-13, RF-14, CU-26 a CU-32)."""
 
-import time
 from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
@@ -8,14 +7,14 @@ from flask_jwt_extended import get_jwt_identity, jwt_required, verify_jwt_in_req
 
 from src.auth.models import User
 from src.auth.service import AuthError, normalize_experience
+from src.catalog import resolve_display_name
 from src.constants import INDICATOR_SHORT_LABELS
-from src.profile.models import QueryLog
 from src.extensions import db
-from src.extractor import ExtractionError, get_indicator
-from src.nlp import regenerate_explanation
-from src.web.routes import _get_session_id, _log_and_validate, _resolve_display_name
-
+from src.extractor import ExtractionError
 from src.nlp.levels import LEVEL_LABELS
+from src.profile.models import QueryLog
+from src.services.query_service import get_session_id, log_and_validate, run_query
+
 from .service import build_learning_profile, get_detail_level, recent_queries, recent_visits
 
 bp = Blueprint("profile", __name__)
@@ -25,9 +24,9 @@ def _profile_with_names(user_id):
     """Perfil con nombres de empresa legibles (ej. "Banco Santander" en vez de BSANTANDER.SN)."""
     profile = build_learning_profile(user_id)
     for row in profile["top_instruments"]:
-        row["name"] = _resolve_display_name(row["instrument"])
+        row["name"] = resolve_display_name(row["instrument"])
     if profile["top_indicator_instrument"]:
-        profile["top_indicator_instrument_name"] = _resolve_display_name(profile["top_indicator_instrument"])
+        profile["top_indicator_instrument_name"] = resolve_display_name(profile["top_indicator_instrument"])
     return profile
 
 
@@ -44,10 +43,10 @@ def profile_page():
 
     history = recent_queries(user_id, limit=current_app.config["HISTORY_MAX_ITEMS"])
     for q in history:
-        q.display_name = _resolve_display_name(q.instrument)
+        q.display_name = resolve_display_name(q.instrument)
     visits = recent_visits(user_id)
     for v in visits:
-        v["name"] = _resolve_display_name(v["instrument"])
+        v["name"] = resolve_display_name(v["instrument"])
 
     return render_template(
         "profile.html",
@@ -119,26 +118,11 @@ def api_profile_regenerate():
     detail_level = get_detail_level(user_id, indicator)
 
     try:
-        started = time.perf_counter()
-        indicator_data = get_indicator(
-            instrument,
-            indicator,
-            days=180,
-            alpha_vantage_key=current_app.config["ALPHAVANTAGE_API_KEY"],
-            cache_ttl_seconds=current_app.config["CACHE_TTL_SECONDS"],
+        indicator_data, explanation, elapsed_ms = run_query(
+            instrument, indicator, 180, detail_level=detail_level, previous_variant=last_log.variant or 0
         )
-        explanation = regenerate_explanation(
-            indicator_data,
-            last_log.variant or 0,
-            use_finbert=current_app.config["USE_FINBERT"],
-            detail_level=detail_level,
-            display_name=_resolve_display_name(instrument),
-            use_llm=current_app.config.get("USE_LLM", False),
-            llm_api_key=current_app.config.get("GROQ_API_KEY", ""),
-        )
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        coherent, _ = _log_and_validate(
-            _get_session_id(), instrument, indicator, indicator_data, explanation, elapsed_ms,
+        coherent, _ = log_and_validate(
+            get_session_id(), instrument, indicator, indicator_data, explanation, elapsed_ms,
             user_id=user_id, is_regeneration=True,
         )
     except ExtractionError as exc:
