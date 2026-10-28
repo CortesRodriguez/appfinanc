@@ -1,4 +1,4 @@
-"""Extensiones compartidas (evita imports circulares entre web y evaluation)."""
+"""Extensiones compartidas (evita imports circulares entre web y los modulos)."""
 
 from authlib.integrations.flask_client import OAuth
 from flask_bcrypt import Bcrypt

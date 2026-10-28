@@ -28,7 +28,7 @@ El proyecto adopta el **modelo de vistas 4+1** propuesto por Kruchten (1995), qu
 
 - **Vista lógica**: Flask (Presentador), LLM con plantillas de respaldo y FinBERT opcional (Procesador NLP), yfinance/Alpha Vantage/mindicador (Extractor).
 - **Vista de procesos**: flujo secuencial en tiempo diferido, sin paralelismo entre módulos.
-- **Vista de desarrollo**: separación en paquetes Python (`src/extractor/`, `src/nlp/`, `src/web/`, `src/auth/`, `src/profile/` y `src/evaluation/`, que solo contiene los modelos `QueryLog` e `InstrumentVisit`).
+- **Vista de desarrollo**: separación en paquetes Python (`src/extractor/`, `src/nlp/`, `src/web/`, `src/auth/`, `src/profile/`, que también contiene los modelos `QueryLog` e `InstrumentVisit`).
 - **Vista física**: dos nodos. Un nodo de aplicación (gunicorn con varios workers ejecutando Flask, detrás de un proxy inverso/PaaS que termina HTTPS) y un nodo de base de datos PostgreSQL separado (servicio gestionado, conexión TCP 5432 con TLS). En desarrollo, ambos corren en la máquina del desarrollador (PostgreSQL local vía Homebrew).
 - **Vista de escenarios**: dos escenarios representativos (consulta de indicador; validación de coherencia) que amarran las cuatro vistas anteriores mediante casos de uso extendidos (Fase 3).
 

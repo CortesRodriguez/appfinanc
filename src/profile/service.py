@@ -11,7 +11,7 @@ seleccionado y alimenta "instrumentos mas consultados" (RF-14.2).
 from sqlalchemy import func
 
 from src.auth.models import User
-from src.evaluation.models import InstrumentVisit, QueryLog
+from src.profile.models import InstrumentVisit, QueryLog
 from src.extensions import db
 from src.nlp.explainer import STYLE_LABELS
 from src.nlp.levels import DEFAULT_LEVEL, EXPERIENCE_TO_LEVEL, LEVEL_ORDER

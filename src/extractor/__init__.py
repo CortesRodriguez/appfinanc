@@ -11,9 +11,9 @@ from .sources import DataSourceError, fetch_batch_quotes, fetch_macro_indicators
 
 VALID_PERIODS = (30, 90, 180, 365)
 VALID_INTERVALS = ("1d", "1w", "1mo", "3mo")
-# Igual al largo de `instrument` en query_logs / instrument_visits: motores como
-# PostgreSQL rechazan valores mas largos que el VARCHAR (SQLite no lo hace), asi que
-# se corta aca con un 4xx.
+# Igual al largo de `instrument` en query_logs / instrument_visits: PostgreSQL
+# rechaza valores mas largos que el VARCHAR, asi que se corta aca con un 4xx
+# en vez de dejar que llegue a la base como un 500.
 MAX_SYMBOL_LENGTH = 20
 
 # Exploracion historica extendida: el grafico siempre trae MAX_CHART_FETCH_DAYS

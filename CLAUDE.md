@@ -43,9 +43,8 @@ The app is a Flask monolith with four independent backend modules, a thin Flask 
 ```
 extractor/   — fetches and caches price data; computes financial indicators
 nlp/         — generates Spanish natural-language explanations from indicator dicts
-evaluation/  — QueryLog (query logging) and InstrumentVisit models; coherence checking lives in nlp/validator.py
 auth/        — JWT-in-cookie login (Flask-JWT-Extended + Flask-Bcrypt)
-profile/     — adaptive detail-level based on per-user regeneration history
+profile/     — adaptive detail-level based on per-user regeneration history; owns the QueryLog and InstrumentVisit models
 web/         — Flask Blueprint (routes.py), Jinja2 templates, CSS, JS
 ```
 

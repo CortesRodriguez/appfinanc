@@ -23,7 +23,7 @@ Probabilidad e impacto: A (alta), M (media), B (baja). Responsable: el autor del
 | R4 | Groq no responde o cambia el modelo | M | M | Respaldo automático a plantillas (ADR 0002) | Registrar cuántas salidas caen al respaldo (**pendiente**) |
 | R5 | El LLM redacta un texto que contradice el dato | M | A | Verificación mínima + `validate_coherence` que avisa; falta bloquearlo (ADR 0002) | Implementar la validación previa a la aceptación |
 | R6 | Fuga o pérdida de datos de cuentas | B | A | bcrypt, JWT httpOnly, CSRF, bloqueo por intentos, PostgreSQL con TLS y respaldos (ADR 0004, 0006) | Probar una restauración de respaldo |
-| R7 | Las migraciones fallan en PostgreSQL (se escribieron y probaron solo con SQLite) | M | A | Ejecutar `flask db upgrade` contra una base vacía antes de entregar | Verificar y registrar el resultado |
+| R7 | Las migraciones fallan en PostgreSQL (se escribieron pensando en SQLite) | B | A | Verificado el 2026-10-28: la base `appfint` quedó en la revisión `0005` con las 5 tablas esperadas y los 108 tests pasan contra PostgreSQL 16. Falta repetir `flask db upgrade` sobre una base totalmente vacía | Repetir la prueba en una base vacía antes de entregar |
 | R8 | Sin validación con usuarios, no hay evidencia de que mejore la comprensión | A | M | Declararlo como limitación; validación técnica con tests (ADR 0007) | Reevaluar si hay tiempo para una prueba con usuarios |
 | R9 | El informe y el PPT quedan desactualizados respecto del código | A | A | Aplicar los cambios de `docs/revision_sumativa1.md` | Revisión antes de la entrega |
 | R10 | Retraso del 30 % pendiente | M | A | Priorizar C9, C12–C14 y C22 | Seguimiento semanal en la herramienta de gestión (**pendiente**) |

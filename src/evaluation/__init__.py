@@ -1,1 +1,0 @@
-"""Modelos: QueryLog e InstrumentVisit."""

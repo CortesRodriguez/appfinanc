@@ -12,9 +12,8 @@ El código sigue la arquitectura modular definida en la memoria: cuatro componen
 src/
   extractor/    # RF-01, RF-02, RF-03 — obtiene y normaliza datos (Yahoo Finance / Alpha Vantage), con cache y reintentos
   nlp/          # RF-04, RF-05, RF-06 — genera explicaciones (LLM con plantillas de respaldo), clasifica riesgo, valida coherencia, glosario
-  evaluation/   # modelos QueryLog (log de consultas, RNF-01.2) e InstrumentVisit (visitas por instrumento)
   auth/         # RF-16, RF-17, RNF-09 — registro, login/logout con JWT en cookie, bcrypt
-  profile/      # RF-18, RF-19 — perfil adaptativo de aprendizaje (agregaciones sobre QueryLog)
+  profile/      # RF-18, RF-19 — perfil adaptativo de aprendizaje; modelos QueryLog (RNF-01.2) e InstrumentVisit
   web/          # RF-07 a RF-10 — Presentador: rutas Flask, plantillas HTML, CSS y JS
 data/           # catálogo de instrumentos y glosario
 tests/          # pruebas unitarias e integración (sin llamadas de red reales)

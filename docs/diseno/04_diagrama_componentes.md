@@ -156,7 +156,7 @@ end note
 | Validar Coherencia | `src/nlp/validator.py:validate_coherence` |
 | Perfil Adaptativo | `src/profile/service.py:get_detail_level`, `build_learning_profile` |
 | Cuentas de Usuario | `src/auth/models.py:User`, `RevokedToken` |
-| Registro de Consultas | `src/evaluation/models.py:QueryLog`, `InstrumentVisit` |
+| Registro de Consultas | `src/profile/models.py:QueryLog`, `InstrumentVisit` |
 
 ## Reglas de dependencia (contrato de diseño)
 

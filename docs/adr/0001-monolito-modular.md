@@ -26,13 +26,13 @@ El sistema tiene extracción de datos, generación de explicaciones, autenticaci
 
 ## Decisión
 
-Un solo proceso Flask con paquetes en `src/`: `extractor`, `nlp`, `auth`, `profile`, `evaluation` y `web`. Los módulos se comunican por funciones públicas (`get_indicator`, `generate_explanation`, `get_detail_level`).
+Un solo proceso Flask con paquetes en `src/`: `extractor`, `nlp`, `auth`, `profile` y `web`. Los módulos se comunican por funciones públicas (`get_indicator`, `generate_explanation`, `get_detail_level`).
 
 ## Consecuencias
 
 - Positivas: despliegue y depuración simples; fácil de explicar.
 - Negativas: `src/profile/routes.py` y `src/web/routes.py` repiten parte de la orquestación de una consulta (deuda documentada en `docs/diseno/04_diagrama_componentes.md`). Refactor propuesto: un `query_service.py` compartido.
-- `src/evaluation/` hoy solo contiene los modelos `QueryLog` e `InstrumentVisit`, por lo que su nombre quedó desactualizado tras el ADR 0007. Renombrarlo (por ejemplo a `history/`) es opcional y requiere actualizar imports.
+- Tras el ADR 0007, el paquete `src/evaluation/` solo conservaba los modelos `QueryLog` e `InstrumentVisit`; se eliminó y los modelos pasaron a `src/profile/models.py`, sin cambios de esquema.
 
 ## Verificación
 

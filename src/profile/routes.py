@@ -9,7 +9,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required, verify_jwt_in_req
 from src.auth.models import User
 from src.auth.service import AuthError, normalize_experience
 from src.constants import INDICATOR_SHORT_LABELS
-from src.evaluation.models import QueryLog
+from src.profile.models import QueryLog
 from src.extensions import db
 from src.extractor import ExtractionError, get_indicator
 from src.nlp import regenerate_explanation

@@ -117,7 +117,7 @@
 | **Auth** | `src/auth/models.py` |
 | | `src/auth/__init__.py` |
 | **Profile** | `src/profile/service.py` |
-| **BD** | PostgreSQL, base `appfint` (modelos en `src/auth/models.py`, `src/evaluation/models.py`; esquema en `migrations/versions/0001_esquema_inicial.py`) |
+| **BD** | PostgreSQL, base `appfint` (modelos en `src/auth/models.py`, `src/profile/models.py`; esquema en `migrations/versions/0001_esquema_inicial.py`) |
 
 ---
 

@@ -14,7 +14,7 @@ from src.extensions import db
 from src.extractor import MAX_SYMBOL_LENGTH, ExtractionError, VALID_PERIODS, get_company_news, get_indicator, get_macro_indicators, get_market_news, get_price_series, get_quotes
 from src.nlp import generate_explanation, regenerate_explanation, validate_coherence
 from src.nlp.glossary import list_terms, search_terms
-from src.evaluation.models import InstrumentVisit, QueryLog
+from src.profile.models import InstrumentVisit, QueryLog
 from src.nlp.levels import DEFAULT_LEVEL
 from src.profile.service import get_detail_level, preferred_variant, recent_visits
 from src.constants import INDICATOR_LABELS

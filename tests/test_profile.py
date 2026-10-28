@@ -110,7 +110,7 @@ def test_queries_without_login_are_not_attributed_to_any_profile(client, monkeyp
 
     client.post("/api/query", json={"symbol": "SPY", "indicator": "rsi", "days": 180})
 
-    from src.evaluation.models import QueryLog
+    from src.profile.models import QueryLog
 
     with app.app_context():
         log = QueryLog.query.order_by(QueryLog.id.desc()).first()
@@ -190,7 +190,7 @@ def test_two_regenerations_lower_the_level_one_step(client, monkeypatch):
 
 def test_profile_regenerate_uses_real_detail_level_and_timing(client, monkeypatch, app):
     monkeypatch.setattr("src.extractor.fetch_price_history", _fake_history)
-    from src.evaluation.models import QueryLog
+    from src.profile.models import QueryLog
     from src.extractor.cache import price_history_cache
 
     price_history_cache.clear()
@@ -221,7 +221,7 @@ def test_profile_regenerate_uses_real_detail_level_and_timing(client, monkeypatc
 def test_profile_reuses_last_explanation_without_regenerating(client, monkeypatch, app):
     """RF-14.5: visitar /perfil no genera ni registra nada; muestra la guardada."""
     monkeypatch.setattr("src.extractor.fetch_price_history", _fake_history)
-    from src.evaluation.models import QueryLog
+    from src.profile.models import QueryLog
     from src.extractor.cache import price_history_cache
 
     price_history_cache.clear()
@@ -582,7 +582,7 @@ def test_history_empty_state_for_new_account(client):
 
 def test_query_log_stores_detail_for_history(client, app, monkeypatch):
     monkeypatch.setattr("src.extractor.fetch_price_history", _fake_history)
-    from src.evaluation.models import QueryLog
+    from src.profile.models import QueryLog
     from src.extractor.cache import price_history_cache
 
     price_history_cache.clear()

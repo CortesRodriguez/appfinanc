@@ -261,7 +261,7 @@ CREATE INDEX ix_instrument_visits_user_id ON instrument_visits (user_id);
 
 -- OPCIÓN 1 (recomendada): migraciones con Flask-Migrate / Alembic
 -- ────────────────────────────────────────────────────────────────
--- Los modelos en src/auth/models.py y src/evaluation/models.py definen las
+-- Los modelos en src/auth/models.py y src/profile/models.py definen las
 -- tablas; la migración migrations/versions/0001_esquema_inicial.py contiene
 -- este mismo esquema. Con DATABASE_URL apuntando a la base:
 --
