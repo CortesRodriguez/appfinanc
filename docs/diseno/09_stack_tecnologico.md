@@ -8,13 +8,15 @@ Cada elección técnica del proyecto responde a un criterio específico, no a un
 |---|---|---|
 | Lenguaje de backend | Python 3.11+ | Base común de todos los módulos |
 | Framework web | Flask | Presentador (interfaz web + rutas) |
-| ORM y capa de datos | SQLAlchemy + Flask-SQLAlchemy | Modelo de datos |
-| Motor de base de datos | SQLite (embebido) | Persistencia local del prototipo |
+| ORM y capa de datos | SQLAlchemy 2 + Flask-SQLAlchemy (driver psycopg 3) | Modelo de datos |
+| Motor de base de datos | PostgreSQL 14+ (nodo separado) | Persistencia de usuarios, tokens revocados y registros de consulta |
+| Migraciones de esquema | Flask-Migrate (Alembic) | Versionado del esquema (`flask db upgrade`) |
+| Servidor de aplicación | gunicorn (varios workers) | Ejecución de Flask en producción detrás de proxy HTTPS |
 | Fuente primaria de precios | Yahoo Finance vía `yfinance` | Módulo Extractor (RF-02.1) |
 | Fuente de respaldo de precios | Alpha Vantage (HTTP + API key) | Fallback ante caída de Yahoo (RNF-09) |
 | Fuente de indicadores macro chilenos | mindicador.cl (API pública del Banco Central de Chile) | Módulo Extractor (RF-02.3) |
-| Motor de NLP (clasificación) | **FinBERT** (Hugging Face Transformers) | Procesador NLP: clasifica sentimiento y categorías cualitativas (RF-04.1) |
-| Motor de redacción (texto final) | Plantillas en español con variantes | Procesador NLP: redacta la explicación final a partir de la clasificación de FinBERT (RF-05.1) |
+| Motor de redacción (texto final) | LLM `qwen/qwen3.8-27b` vía Groq, con plantillas en español como respaldo | Procesador NLP: redacta la explicación según la ficha del nivel del usuario (RF-04.1, RF-05.1) |
+| Señal de sentimiento (opcional) | FinBERT (Hugging Face Transformers) | Procesador NLP: etiqueta de sentimiento del indicador; desactivado por defecto (RF-04.1) |
 | Autenticación | Flask-JWT-Extended + Flask-Bcrypt | Módulo de Autenticación (RF-11, RF-12, RNF-06) |
 | Frontend | HTML5 + CSS3 + JS vanilla + Jinja2 | Interfaz web renderizada por Flask |
 | Gráficos | TradingView Lightweight Charts v4 | Visualización de tendencia (RF-07) |
@@ -24,10 +26,10 @@ Cada elección técnica del proyecto responde a un criterio específico, no a un
 
 El proyecto adopta el **modelo de vistas 4+1** propuesto por Kruchten (1995), que describe la arquitectura desde cinco perspectivas complementarias (ver Fase 1 y Fase 5). Cada elección de tecnología se ubica en al menos una vista:
 
-- **Vista lógica**: Flask (Presentador), FinBERT (Procesador NLP), yfinance/Alpha Vantage/mindicador (Extractor).
+- **Vista lógica**: Flask (Presentador), LLM con plantillas de respaldo y FinBERT opcional (Procesador NLP), yfinance/Alpha Vantage/mindicador (Extractor).
 - **Vista de procesos**: flujo secuencial en tiempo diferido, sin paralelismo entre módulos.
-- **Vista de desarrollo**: separación en paquetes Python (`src/extractor/`, `src/nlp/`, `src/web/`, `src/auth/`, `src/evaluation/`, `src/profile/`).
-- **Vista física**: despliegue en un nodo único (máquina del desarrollador o servidor local); base de datos SQLite embebida en el mismo proceso.
+- **Vista de desarrollo**: separación en paquetes Python (`src/extractor/`, `src/nlp/`, `src/web/`, `src/auth/`, `src/profile/` y `src/evaluation/`, que solo contiene los modelos `QueryLog` e `InstrumentVisit`).
+- **Vista física**: dos nodos. Un nodo de aplicación (gunicorn con varios workers ejecutando Flask, detrás de un proxy inverso/PaaS que termina HTTPS) y un nodo de base de datos PostgreSQL separado (servicio gestionado, conexión TCP 5432 con TLS). En desarrollo, ambos corren en la máquina del desarrollador (PostgreSQL local vía Homebrew).
 - **Vista de escenarios**: dos escenarios representativos (consulta de indicador; validación de coherencia) que amarran las cuatro vistas anteriores mediante casos de uso extendidos (Fase 3).
 
 ## Backend
@@ -36,7 +38,7 @@ El proyecto adopta el **modelo de vistas 4+1** propuesto por Kruchten (1995), qu
 
 Elegido por tres motivos concretos, en este orden:
 
-1. **Ecosistema científico/financiero maduro**: `pandas`, `numpy`, `yfinance` y `transformers` cubren el 100 % de la extracción de datos, cálculo de indicadores y generación NLP sin necesidad de integrar bindings a otros lenguajes.
+1. **Ecosistema científico/financiero maduro**: `pandas`, `numpy`, `yfinance` y los clientes de modelos de lenguaje cubren el 100 % de la extracción de datos, cálculo de indicadores y generación NLP sin necesidad de integrar bindings a otros lenguajes.
 2. **Comprensibilidad para lectura crítica académica**: la comisión y el guía pueden leer el código sin fricción; un lenguaje más "de sistemas" (Go, Rust) habría dificultado la revisión.
 3. **Curva de entrada del equipo**: el proyecto es de trabajo individual, sin margen para aprender un lenguaje nuevo durante el desarrollo.
 
@@ -45,13 +47,17 @@ Elegido por tres motivos concretos, en este orden:
 Elegido frente a **Django** (el otro framework Python dominante) por criterios específicos al proyecto:
 
 - **Explicitidad**: Flask no impone estructura ni ORM. En un proyecto de título, donde la comisión suele preguntar *por qué* cada archivo está donde está, un framework explícito facilita defender cada decisión arquitectónica.
-- **Peso proporcional al alcance**: el sistema tiene ~20 rutas HTTP y 5-6 tablas. Django trae infraestructura pensada para aplicaciones mucho más grandes (admin, migraciones, i18n, ORM propio, template engine propio).
-- **Application Factory pattern**: Flask lo soporta directamente (`create_app(config)`), lo que facilita usar una configuración de test en memoria en las pruebas.
-- **Comparación con FastAPI**: FastAPI destaca en APIs REST puras; este proyecto también renderiza plantillas Jinja2 para dashboard, encuestas y panel de auditoría. Flask maneja HTML + JSON sin fricción.
+- **Peso proporcional al alcance**: el sistema tiene ~20 rutas HTTP y 5-6 tablas. Django trae infraestructura pensada para aplicaciones mucho más grandes (admin, i18n, ORM propio, template engine propio); las piezas que sí se necesitan (ORM, migraciones) se incorporan como extensiones (Flask-SQLAlchemy, Flask-Migrate).
+- **Application Factory pattern**: Flask lo soporta directamente (`create_app(config)`), lo que facilita usar una configuración de test apuntando a una base de datos de pruebas dedicada.
+- **Comparación con FastAPI**: FastAPI destaca en APIs REST puras; este proyecto también renderiza plantillas Jinja2 para dashboard, perfil y glosario. Flask maneja HTML + JSON sin fricción.
 
 ### SQLAlchemy + Flask-SQLAlchemy
 
-ORM elegido por su neutralidad respecto al motor de BD: el mismo código funciona sobre SQLite, PostgreSQL o MySQL cambiando solo la cadena de conexión. Esa portabilidad es lo que permite usar SQLite en el prototipo sin comprometer una migración futura a PostgreSQL.
+ORM estándar de facto en Python. Se usa SQLAlchemy 2 a través de Flask-SQLAlchemy, con el driver **psycopg 3** (`postgresql+psycopg://`). Los modelos se declaran como clases Python, las consultas son parametrizadas (previenen inyección SQL) y el pool de conexiones se configura con `pool_pre_ping=True` y `pool_recycle=1800`, de modo que las conexiones cerradas por el servidor gestionado se descartan antes de usarse en lugar de producir errores 500.
+
+### Flask-Migrate (Alembic)
+
+El esquema se versiona en `migrations/versions/` y se aplica con `flask db upgrade` (la migración inicial es `0001_esquema_inicial`). La aplicación no crea tablas al arrancar: cada cambio de esquema queda registrado, es revisable y reversible (`downgrade`), y puede aplicarse en producción sin perder datos.
 
 ## Fuentes de datos
 
@@ -69,54 +75,55 @@ ORM elegido por su neutralidad respecto al motor de BD: el mismo código funcion
 
 Fuente independiente para UF, dólar observado, TPM e IPC. Es una API pública, gratuita, sin autenticación, mantenida sobre datos oficiales del Banco Central de Chile. Se eligió frente a scraping directo del sitio del Banco Central porque el formato del API es estable y no requiere parsear HTML.
 
-## Motor de generación de explicaciones: FinBERT + plantillas
+## Motor de generación de explicaciones: LLM con plantillas de respaldo
 
 Este es el punto más pedagógico de la Fase 9 y el que la comisión suele preguntar con detalle.
 
 ### Arquitectura elegida
 
-El Procesador NLP funciona en dos pasos, coherente con CU-08 y CU-10 del documento oficial:
+El Procesador NLP redacta cada explicación en tres pasos (`src/nlp/explainer.py`):
 
-1. **Clasificación con FinBERT** (RF-04.1, CU-08). El modelo preentrenado `ProsusAI/finbert` recibe el indicador normalizado y clasifica su sentimiento o categoría cualitativa (por ejemplo: "positivo", "neutral", "negativo").
-2. **Redacción por plantillas** (RF-05.1, CU-10). Un motor de generación basado en plantillas en español combina la categoría clasificada por FinBERT con los valores reales del indicador y produce el texto final, con al menos tres variantes de redacción por indicador para permitir la regeneración (RF-06.2).
+1. **Ficha del nivel** (RF-05.2, RF-13.2). Según el usuario, el indicador pasa a un nivel (`basico`, `intermedio`, `avanzado`) cuya ficha (`src/nlp/levels.py`) define audiencia, vocabulario, términos prohibidos, umbrales y máximo de palabras. La misma ficha alimenta el prompt del LLM y las plantillas.
+2. **Redacción con LLM** (RF-04.1, RF-05.1). Si `USE_LLM=true` y hay `GROQ_API_KEY`, el modelo `qwen/qwen3.8-27b` (vía Groq) redacta el texto. Se recorta al máximo de palabras del nivel y se acepta solo si contiene la etiqueta de riesgo, el valor del indicador y ningún término prohibido del nivel.
+3. **Plantillas de respaldo**. Si el LLM está desactivado, falla o su texto no pasa la verificación, se usan plantillas en español con tres variantes por indicador y nivel (`src/nlp/templates.py`), que se rellenan con los valores reales y por eso son coherentes por construcción. Las variantes permiten la regeneración (RF-06.2).
 
-Entre ambos pasos, un **validador de coherencia** (RF-04.2) verifica que la categoría cualitativa usada en la explicación corresponda a los umbrales reales del indicador (RSI, %B, MACD, medias móviles), descartando cualquier alucinación del modelo.
+Después, el **validador de coherencia** (RF-04.2, `src/nlp/validator.py`) contrasta el texto con el valor y los umbrales del indicador (RSI, %B, MACD, medias móviles). Si discrepan, la respuesta lleva `coherent=false` y la interfaz muestra un aviso; no bloquea el texto.
 
-### Fundamento de la elección frente a un LLM externo (OpenAI, Anthropic, Gemini)
+**FinBERT** (`ProsusAI/finbert`) es un componente opcional (`USE_FINBERT`, desactivado por defecto): solo aporta una etiqueta de sentimiento que la interfaz muestra como insignia. No participa en la redacción.
 
-| Criterio | FinBERT + plantillas | LLM externo generativo |
+### Fundamento de la elección: LLM con respaldo frente a solo plantillas
+
+| Criterio | Solo plantillas | LLM con plantillas de respaldo (elegido) |
 |---|---|---|
-| Control de coherencia con el dato | Alto — validador determinista compara valor y umbrales | Bajo — el LLM puede alucinar el valor |
-| Reproducibilidad | Alta — misma entrada, misma salida por variante | Baja — mismo prompt, distintas salidas |
-| Costo por consulta | Cero (modelo local) | Pago por token, escala con uso |
-| Dependencia de terceros para la defensa | No hay | Sí — corte del servicio invalida la demo |
-| Legibilidad ≥ 60 (RNF-04.1) | Garantizada por diseño de las plantillas | No garantizada, requeriría post-procesamiento |
-| Alucinaciones factuales | Imposibles por construcción | Posibles y difíciles de detectar |
-| Complejidad de la defensa | Baja — se muestra la plantilla | Alta — requiere justificar prompt engineering |
+| Coherencia con el dato | Alta, por construcción | Menor: el LLM puede errar; se mitiga con la verificación mínima, el validador y el respaldo |
+| Fluidez y adaptación al nivel | Limitada a las variantes escritas | Alta: el texto se ajusta a la ficha del nivel |
+| Reproducibilidad | Alta | Menor: mismo prompt, salidas distintas |
+| Costo por consulta | Cero | Cuota del proveedor (Groq, nivel gratuito) |
+| Dependencia de terceros | Ninguna | Groq; si cae, se usan las plantillas sin que el usuario lo note |
+| Alucinaciones | Imposibles | Posibles; la verificación mínima solo exige etiqueta, valor y vocabulario del nivel |
 
-Un LLM externo aporta fluidez y variedad de redacción, pero introduce un riesgo estructural sobre la afirmación central del proyecto: si el LLM se equivoca al citar el valor del indicador, la explicación contradice al dato y el sistema pierde su propósito. La combinación FinBERT + plantillas mantiene la fluidez del contenido semántico (dado por FinBERT) y garantiza coherencia matemática (dado por las plantillas + validador).
+Se eligió el LLM como generador principal porque permite ajustar el vocabulario y la profundidad al nivel del usuario, que es el aporte central del proyecto, y se conservaron las plantillas como red de seguridad (RNF-09). La verificación actual es **mínima**: comprueba que aparezcan la etiqueta de riesgo y el valor como texto, pero no que el resto de la redacción sea fiel. Endurecerla (exigir `validate_coherence` antes de aceptar la salida del LLM) está registrado como mejora en `docs/adr/0002-llm-con-fallback-y-validacion.md`.
 
-Esta arquitectura satisface el requerimiento **RF-04.1** ("procesar cada indicador mediante FinBERT") citado explícitamente en el anteproyecto.
+### Justificación del uso de FinBERT como señal opcional
 
-### Justificación del uso de FinBERT específicamente
+FinBERT (Huang, Wang & Yang, 2023) es un modelo BERT preentrenado sobre corpus financieros y clasifica información financiera en positivo / neutral / negativo. La revisión de Baghavathi Priya et al. (2025) confirma que sigue siendo un estándar para análisis de sentimiento financiero. Se mantiene como señal complementaria y opcional porque exige instalar `transformers` y `torch` (no están en `requirements.txt`) y añade varios segundos de carga.
 
-FinBERT (Huang, Wang & Yang, 2023) es un modelo BERT preentrenado sobre corpus financieros. Aporta ventajas concretas frente a un BERT genérico:
+### Fallbacks silenciosos (decisión de robustez)
 
-- **Vocabulario financiero**: reconoce términos y jerga del dominio que un BERT genérico ignora o interpreta mal.
-- **Sentimiento financiero**: fue entrenado específicamente para clasificar información financiera en positivo / neutral / negativo, lo cual mapea directamente a los niveles de riesgo (RF-06.1).
-- **Vigencia**: la revisión de Baghavathi Priya et al. (2025) confirma que FinBERT sigue siendo un estándar de facto para tareas de análisis de sentimiento financiero.
+Hay dos niveles de degradación, coherentes con RNF-09: si el LLM no responde o su salida no pasa la verificación, se usan las plantillas; si FinBERT no está instalado o falla, se omite la etiqueta de sentimiento. En ambos casos el usuario recibe una explicación válida.
 
-### Fallback silencioso (decisión de robustez)
+## Base de datos: PostgreSQL
 
-Aunque FinBERT es el componente central por diseño, el módulo NLP incluye un **fallback silencioso**: si por cualquier motivo (`transformers` no instalado, error de carga del modelo, timeout) FinBERT no responde, el motor de plantillas continúa operando con una clasificación por defecto y el sistema entrega una explicación válida. Esta decisión de diseño garantiza que un fallo puntual del modelo no invalide toda la sesión del usuario, coherente con el principio de tolerancia a fallos de RNF-09.
+- **Nodo separado del contenedor de la aplicación**: los datos (usuarios, correos, hashes bcrypt, tokens revocados, registros de consulta) sobreviven a los redespliegues, que reemplazan los contenedores de Flask sin tocar la base.
+- **Escrituras concurrentes reales (MVCC)**: varios workers de gunicorn, o varias instancias de la aplicación, escriben en paralelo sin serializarse; los bloqueos son a nivel de fila.
+- **Respaldos y recuperación**: el servicio gestionado (Neon, Supabase, Render u otro) ofrece respaldos automáticos y recuperación a un punto en el tiempo; adicionalmente `pg_dump` permite volcados manuales.
+- **Seguridad para datos personales**: conexión cifrada con TLS (`sslmode=require`), roles y privilegios por usuario de base de datos, credenciales entregadas solo por la variable de entorno `DATABASE_URL`.
+- **Integridad estricta**: PostgreSQL valida tipos y largos (`VARCHAR(n)`, `BOOLEAN`, `TIMESTAMPTZ`). Por eso el largo del ticker se valida antes de llegar a la base (`MAX_SYMBOL_LENGTH = 20`, igual al largo de la columna `instrument`).
+- **Marcas de tiempo con zona horaria** (`timestamptz`), relevantes para auditar consultas de usuarios en distintas zonas.
+- **Configuración obligatoria**: `DATABASE_URL` es requerida; `config.py` rechaza el arranque si falta o si no es una URL de PostgreSQL, y normaliza las URLs `postgres://` que entregan los PaaS al driver psycopg 3.
+- **Volumen esperado**: incluso proyectando cientos de participantes en la validación, el orden de magnitud es ≤ 10⁵ filas totales; holgado para una instancia gestionada pequeña.
 
-## Base de datos: SQLite
-
-- **Cero infraestructura**: se guarda como archivo, no requiere servidor separado.
-- **Volumen esperado**: incluso proyectando cientos de participantes en la validación, el orden de magnitud es ≤ 10⁵ filas totales — muy dentro del sweet-spot de SQLite.
-- **Portabilidad hacia PostgreSQL sin cambios de código**: gracias a SQLAlchemy, migrar requiere cambiar solo la cadena de conexión.
-
-Se descartó **PostgreSQL** para el prototipo por razones de proporcionalidad: la comisión evaluadora no debería tener que levantar un servidor de BD para revisar el código.
+Se evaluaron **SQLite** y **MySQL**. SQLite se descartó porque es un archivo acoplado al disco del contenedor (se perdería en cada redespliegue de un PaaS) y admite un único escritor a la vez; MySQL es viable, pero PostgreSQL ofrece tipos más estrictos, mejor apego a SQL estándar y es el motor de referencia en el ecosistema SQLAlchemy/Alembic. El costo asumido es operar un servidor aparte: en desarrollo se usa PostgreSQL local (Homebrew, base `appfint`) y en producción un servicio gestionado.
 
 ## Frontend: HTML + CSS + JS vanilla + Jinja2
 
@@ -141,21 +148,23 @@ Librería de gráficos financieros elegida por criterios específicos:
 - **Bcrypt**: los passwords se guardan hasheados con bcrypt, satisfaciendo RNF-06.1 (mínimo 8 caracteres).
 - **Expiración a 24 horas** (RNF-06.2).
 
-Se descartaron sesiones Flask nativas (no incluyen expiración configurable ni revocación individual) y OAuth externo (agrega complejidad de infraestructura sin beneficio en el contexto académico).
+Se descartaron sesiones Flask nativas (no incluyen expiración configurable ni revocación individual). Se incorporó posteriormente login/registro con Google (OAuth2/OIDC vía Authlib) como alternativa a la cuenta por contraseña, sin reemplazarla: ambos mecanismos coexisten y las cuentas no se vinculan automáticamente por correo.
 
 ## Pruebas: pytest
 
 - **API mínima expresiva**: `assert` estándar de Python, sin necesidad de aprender un DSL.
 - **Integración con Flask test client**: cada ruta se prueba sin levantar servidor real (ver `tests/conftest.py`).
-- **Fixtures compartidas**: la fixture `app` en `conftest.py` levanta una app con SQLite en memoria por test.
+- **Fixtures compartidas**: la fixture `app` en `conftest.py` levanta una app contra una base de datos PostgreSQL de pruebas dedicada (`appfint_test`, sobrescribible con `TEST_DATABASE_URL`), creando el esquema con `db.create_all()` al inicio de cada test y eliminándolo con `db.drop_all()` al final, de modo que cada test parte de una base vacía.
 
 ## Verificación end-to-end del stack
 
 Todo el stack se verifica corriendo:
 
 ```bash
-pip install -r requirements.txt
-python app.py          # levanta la app en http://127.0.0.1:5000/
+pip install -r requirements-dev.txt
+createdb appfint && createdb appfint_test
+flask db upgrade       # aplica las migraciones de Alembic
+python app.py          # levanta la app en http://127.0.0.1:5001/
 pytest                 # tests unitarios y de integración
 ```
 

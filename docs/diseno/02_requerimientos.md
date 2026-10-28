@@ -24,7 +24,7 @@ La trazabilidad hacia los casos de uso extendidos (Fase 3) y hacia las pruebas (
 ### Módulo Procesador NLP
 
 #### RF-04 — Procesamiento de indicadores mediante modelo de lenguaje · Prioridad: Alta
-- **RF-04.1**: El sistema debe procesar cada indicador extraído mediante un modelo de lenguaje preentrenado (FinBERT).
+- **RF-04.1**: El sistema debe generar la explicación de cada indicador mediante un modelo de lenguaje (LLM `qwen/qwen3.8-27b` vía Groq) con plantillas de respaldo cuando el modelo no esté disponible o su salida no supere la verificación, y puede complementarla con una etiqueta de sentimiento de FinBERT, componente opcional.
 - **RF-04.2**: El sistema debe incorporar reglas de validación financiera que contrasten el contenido generado con el valor real del indicador, para mitigar alucinaciones del modelo. El sistema debe verificar que la categoría cualitativa utilizada en la explicación corresponda a los umbrales reales definidos para cada indicador:
   - **RSI**: sobrecomprado si RSI > 70, sobrevendido si RSI < 30.
   - **%B de Bandas de Bollinger**: sobrecomprado si %B > 1, sobrevendido si %B < 0.
@@ -102,9 +102,8 @@ La trazabilidad hacia los casos de uso extendidos (Fase 3) y hacia las pruebas (
 
 ### Seguridad y privacidad de datos
 
-#### RNF-05 — Anonimización de datos de evaluación · Prioridad: Alta
-- **RNF-05.1**: Los datos de los usuarios participantes en la evaluación deben almacenarse de forma anónima, sin asociar respuestas a información personal identificable.
-- **RNF-05.2**: Las respuestas de las encuestas pre-test y post-test deben almacenarse de forma anonimizada, sin asociarlas a información personal identificable, independientemente de la cuenta de usuario con la que se haya iniciado sesión.
+#### RNF-05 — Protección de datos personales · Prioridad: Alta
+- **RNF-05.1**: El sistema debe almacenar solo los datos personales necesarios para la cuenta (nombre de usuario, correo y hash de contraseña) y no debe registrar datos personales en los registros de consulta más allá del identificador de cuenta.
 
 #### RNF-06 — Seguridad de credenciales y sesión · Prioridad: Alta
 - **RNF-06.1**: Las contraseñas de los usuarios deben almacenarse encriptadas mediante Flask-Bcrypt, con un largo mínimo de 8 caracteres.
@@ -113,7 +112,7 @@ La trazabilidad hacia los casos de uso extendidos (Fase 3) y hacia las pruebas (
 ### Mantenibilidad
 
 #### RNF-07 — Organización modular del código · Prioridad: Media
-- **RNF-07.1**: El código del sistema debe estar documentado y organizado de forma modular (extracción, procesamiento, presentación, evaluación), facilitando su mantenimiento y extensión futura.
+- **RNF-07.1**: El código del sistema debe estar documentado y organizado de forma modular (extracción, procesamiento, presentación, autenticación y perfil), facilitando su mantenimiento y extensión futura.
 
 ### Disponibilidad y confiabilidad de datos
 
@@ -145,7 +144,7 @@ Los casos de uso (CU) están detallados en la Fase 3. Esta tabla resume qué RF 
 | RNF-03 | Revisión de usabilidad y responsividad en dispositivos móviles/escritorio durante la validación con usuarios. |
 | RNF-04.1 | Cálculo automático del índice Flesch-Huerta (adaptación al español) en el flujo de generación de la explicación. |
 | RNF-04.2 | Truncamiento por número de palabras en la generación. |
-| RNF-05 | Diseño del esquema de base de datos con separación estricta entre datos identificables y datos de evaluación. |
+| RNF-05 | Esquema con datos personales mínimos (`users`) y `query_logs` que solo referencia `user_id`; hash bcrypt, sin contraseñas en claro. |
 | RNF-06 | Uso de Flask-Bcrypt y Flask-JWT-Extended; validación de largo mínimo en el registro. |
 | RNF-07 | Estructura por paquetes (`src/extractor/`, `src/nlp/`, `src/web/`, etc.) y suite de pruebas por módulo. |
 | RNF-08 | Diseño explícito del sistema sin llamadas en tiempo real; cachés de 5 min. |

@@ -6,8 +6,8 @@ Un diagrama de secuencia por cada caso de uso extendido de la memoria (`f1_s08xc
 
 - Vistas con prefijo `V_` (por ejemplo `V_Principal`, `V_Login`).
 - Controladores con prefijo `C_` (por ejemplo `C_Indicadores`, `C_Autenticacion`).
-- Controlador de base de datos `C_SQLite` — solo se incluye si el caso de uso realmente accede a la BD.
-- Tablas con su nombre real del esquema (`users`, `query_logs`, `survey_responses`, `coherence_checks`, `evaluation_sessions`, `instrument_visits`, `revoked_tokens`).
+- Controlador de base de datos `C_PostgreSQL` — solo se incluye si el caso de uso realmente accede a la BD.
+- Tablas con su nombre real del esquema (`users`, `query_logs`, `instrument_visits`, `revoked_tokens`).
 - Servicios externos con su nombre real: `Yahoo`, `AlphaVantage`, `BCCh` (mindicador.cl).
 - Los mensajes están redactados en lenguaje de negocio (no en nombres de funciones del código), para que el diagrama se lea sin conocer la implementación.
 - Mensajes de ida con `->>` y de retorno con `-->>`. Flujos opcionales en bloque `opt`, excepciones en bloque `alt`. Auto-llamadas con `Componente ->> Componente`.
@@ -24,18 +24,40 @@ sequenceDiagram
     participant V as V_Principal
     participant CI as C_Instrumentos
     participant Cat as data/instruments.json
+    participant CApi as C_API
+    participant Yahoo
+    participant AlphaVantage
     U ->> V: Accede a la interfaz principal
     V ->> CI: Solicita el listado de instrumentos
     CI ->> Cat: Lee las 30 empresas del IPSA
-    Cat -->> CI: Entrega el listado de instrumentos
-    CI -->> V: Envía las 30 empresas del IPSA
-    V -->> U: Muestra el listado
-    U ->> V: Selecciona un instrumento
-    opt Elige rango temporal (1m, 3m, 6m o 1 año)
-        U ->> V: Selecciona el rango
-    end
-    V -->> U: Deja el instrumento y el rango listos para el Extractor (CU-02)
-    alt Excepción 1 — catálogo no disponible
+    alt Catálogo disponible
+        Cat -->> CI: Entrega el listado de instrumentos (nombres y tickers)
+        CI ->> CApi: Solicita los precios actuales de las 30 acciones del IPSA
+        CApi ->> Yahoo: Consulta el precio actual de las 30 acciones del IPSA
+        alt Yahoo responde
+            Yahoo -->> CApi: Entrega precio y variación de cada acción
+            CApi -->> CI: Entrega precio y variación de cada acción
+            CI -->> V: Envía las 30 empresas del IPSA con precios
+        else Excepción 2 — Yahoo no responde
+            Yahoo -->> CApi: Sin respuesta / error
+            CApi ->> AlphaVantage: Solicita el precio de las acciones (respaldo)
+            alt AlphaVantage responde
+                AlphaVantage -->> CApi: Entrega precio y variación de cada acción
+                CApi -->> CI: Entrega precio y variación de cada acción
+                CI -->> V: Envía las 30 empresas del IPSA con precios
+            else AlphaVantage tampoco responde
+                AlphaVantage -->> CApi: Sin respuesta / error
+                CApi -->> CI: Sin respuesta / error
+                CI -->> V: Envía las 30 empresas del IPSA sin precios
+            end
+        end
+        V -->> U: Muestra el listado
+        U ->> V: Selecciona un instrumento
+        opt Elige rango temporal (1m, 3m, 6m o 1 año)
+            U ->> V: Selecciona el rango
+        end
+        V -->> U: Deja el instrumento y el rango listos para el Extractor (CU-02)
+    else Excepción 1 — catálogo no disponible
         Cat -->> CI: No se pudo leer el archivo
         CI -->> V: Error al obtener el catálogo
         V -->> U: "No fue posible cargar la lista de instrumentos"
@@ -44,38 +66,56 @@ sequenceDiagram
 
 **Notas**:
 - **Origen del catálogo**: `data/instruments.json` es un archivo estático del proyecto (no vive en la BD). Se lee una sola vez al arrancar Flask y queda cargado en memoria en la constante `INSTRUMENTS`.
-- **Sin BD**: CU-01 solo lista y selecciona; por eso el diagrama no incluye `C_SQLite` ni tablas.
+- **Sin BD**: CU-01 solo lista y selecciona; por eso el diagrama no incluye `C_PostgreSQL` ni tablas.
 - **Selección solo en el navegador**: al elegir instrumento y rango, el estado queda en el JS del navegador (`dashboard.js:selectInstrument`); no viaja al backend hasta que se dispara la primera consulta de indicador (CU-02).
 - **Nombre `C_Instrumentos`**: agrupación funcional del propósito. En el código real es la ruta `api_instruments` del Blueprint `web`.
 
 ---
 
-## CU-02: Extrayendo indicadores desde las APIs financieras
+## CU-02: Consultando los indicadores de un instrumento
 
 **Ruta / archivo**: `src/web/routes.py:api_query` → `_run_query` → `src/extractor/__init__.py:get_indicator` → `_get_history` → `src/extractor/sources.py:fetch_price_history` (`_retry` con `max_retries=3`).
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CE as C_Extractor
     participant CC as C_Cache
-    participant Y as Yahoo
-    participant AV as AlphaVantage
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant Yahoo
+    participant AlphaVantage
+    U ->> V: Solicita la consulta de indicadores del instrumento
+    V ->> CI: Pide el indicador del instrumento
     CI ->> CE: Solicita el indicador del instrumento
     CE ->> CC: Consulta si hay datos recientes
+    CC ->> TTL: Busca entrada (símbolo, días)
     alt Datos en caché vigentes (menos de 5 min)
-        CC -->> CE: Entrega los datos guardados
+        TTL -->> CC: Entrega los datos guardados
+        CC -->> CE: Entrega los datos del caché
     else Sin datos o caché vencida
-        CE ->> Y: Solicita el historial de precios
+        TTL -->> CC: Sin entrada válida
+        CC -->> CE: Caché vacía o vencida
+        CE ->> CApi: Solicita el historial de precios
+        CApi ->> Yahoo: Consulta el historial de precios del instrumento
         alt Yahoo responde
-            Y -->> CE: Entrega el historial de precios
+            Yahoo -->> CApi: Entrega el historial de precios
+            CApi -->> CE: Entrega el historial de precios
         else Excepción 1 — Yahoo no responde (tras los reintentos)
-            CE ->> AV: Solicita el historial de precios (respaldo)
-            AV -->> CE: Entrega el historial de precios
+            Yahoo -->> CApi: Sin respuesta / error
+            CApi ->> AlphaVantage: Solicita el historial de precios (respaldo)
+            AlphaVantage -->> CApi: Entrega el historial de precios
+            CApi -->> CE: Entrega el historial de precios
         end
         CE ->> CC: Guarda los datos en caché
+        CC ->> TTL: Almacena entrada con TTL de 5 min
+        TTL -->> CC: Confirmación
     end
     CE -->> CI: Entrega la serie de precios normalizada
+    CI -->> V: Entrega los indicadores del instrumento
+    V -->> U: Muestra los indicadores
 ```
 
 **Notas**: RNF-09.2 (`_retry` en `sources.py:45`) reintenta hasta 3 veces antes de propagar la falla. No toca la BD; la trazabilidad de la extracción se persiste en CU-03.
@@ -88,10 +128,14 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CE as C_Extractor
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CI: Solicita el indicador del instrumento
     CI ->> CE: Solicita el indicador del instrumento
     CE -->> CI: Entrega el dato con su fuente y hora de extracción
     CI ->> CI: Prepara el registro de la consulta
@@ -99,40 +143,57 @@ sequenceDiagram
     CS ->> TQ: Guarda la consulta (instrumento, indicador, fuente, tiempo de respuesta, fecha)
     TQ -->> CS: Confirma que se guardó
     CS -->> CI: Registro guardado
+    CI -->> V: Entrega el indicador
+    V -->> U: Muestra el indicador
 ```
 
 **Notas**: la trazabilidad se registra siempre, tanto para consultas anónimas (sin `user_id`) como para autenticadas (con `user_id` no nulo).
 
 ---
 
-## CU-04: Extrayendo indicadores macroeconómicos del Banco Central
+## CU-04: Consultando el contexto macroeconómico nacional
 
 **Ruta / archivo**: `src/web/routes.py:api_ticker` → `src/extractor/__init__.py:get_macro_indicators` → `src/extractor/sources.py:fetch_macro_indicators` (con reintentos).
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
     participant V as V_Principal
     participant CT as C_Ticker
     participant CE as C_Extractor
     participant CC as C_Cache
-    participant B as BCCh
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant BCCh
+    U ->> V: Accede a cualquier página del sistema
     V ->> CT: Solicita los datos de la cinta de precios
     CT ->> CE: Pide los indicadores macroeconómicos
     CE ->> CC: Consulta si hay datos recientes
+    CC ->> TTL: Busca entrada macro
     alt Datos en caché vigentes (menos de 5 min)
-        CC -->> CE: Entrega UF, dólar, TPM e IPC guardados
+        TTL -->> CC: Entrega UF, dólar, TPM e IPC guardados
+        CC -->> CE: Entrega los datos macro del caché
+        CE -->> CT: Entrega los datos macro
     else Sin datos o caché vencida
-        CE ->> B: Solicita los indicadores macro
-        alt BCCh responde
-            B -->> CE: Entrega UF, dólar, TPM e IPC
+        TTL -->> CC: Sin entrada válida
+        CC -->> CE: Caché vacía o vencida
+        CE ->> CApi: Solicita los indicadores macro
+        CApi ->> BCCh: Consulta UF, dólar, TPM e IPC (mindicador.cl)
+        alt El Banco Central responde
+            BCCh -->> CApi: Entrega UF, dólar, TPM e IPC
+            CApi -->> CE: Entrega los datos macro
             CE ->> CC: Guarda los datos en caché
-        else Excepción 1 — BCCh no responde
-            B -->> CE: Sin respuesta / error
+            CC ->> TTL: Almacena entrada con TTL de 5 min
+            TTL -->> CC: Confirmación
+            CE -->> CT: Entrega los datos macro
+        else Excepción 1 — el Banco Central no responde
+            BCCh -->> CApi: Sin respuesta / error
+            CApi -->> CE: Sin respuesta / error
             CE -->> CT: Datos macro parcialmente disponibles (últimos valores en cinta)
         end
     end
-    CE -->> CT: Entrega los datos macro
     CT -->> V: Datos para la cinta de precios
+    V -->> U: Muestra el contexto macroeconómico en la cinta
 ```
 
 **Notas**: la cinta también incluye IPSA + las 30 acciones vía `get_quotes` (Yahoo), pero eso corresponde al flujo de CU-16/CU-17.
@@ -147,20 +208,46 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
+    participant CI as C_Indicadores
     participant CE as C_Extractor
     participant CC as C_Cache
-    participant Y as Yahoo
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant Yahoo
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CI: Solicita el indicador del instrumento
+    CI ->> CE: Solicita el indicador del instrumento
     CE ->> CC: Consulta si hay datos recientes
+    CC ->> TTL: Busca entrada (símbolo, días)
     alt Datos en caché vigentes (menos de 5 min)
+        TTL -->> CC: Entrega el historial guardado
         CC -->> CE: Entrega el historial sin llamar a la API
+        CE -->> CI: Entrega el indicador
+        CI -->> V: Entrega el indicador
+        V -->> U: Muestra el indicador
     else Caché vencida
-        CE ->> Y: Solicita el historial de precios (con reintentos)
-        alt La API responde dentro de los reintentos
-            Y -->> CE: Entrega datos frescos
+        TTL -->> CC: Sin entrada válida
+        CC -->> CE: Caché vacía o vencida
+        CE ->> CApi: Solicita el historial de precios (con reintentos)
+        CApi ->> Yahoo: Consulta el historial de precios del instrumento
+        alt Yahoo responde dentro de los reintentos
+            Yahoo -->> CApi: Entrega datos frescos
+            CApi -->> CE: Entrega datos frescos
             CE ->> CC: Guarda los datos en caché
+            CC ->> TTL: Almacena entrada con TTL de 5 min
+            TTL -->> CC: Confirmación
+            CE -->> CI: Entrega el indicador
+            CI -->> V: Entrega el indicador
+            V -->> U: Muestra el indicador
         else Excepción 1 — reintentos agotados
-            Y -->> CE: Falla persistente
-            CE -->> CE: Informa el error de extracción (RNF-09.1)
+            Yahoo -->> CApi: Falla persistente
+            CApi -->> CE: Falla persistente
+            CE ->> CE: Informa el error de extracción (RNF-09.1)
+            CE -->> CI: Propaga el error → CU-21
+            CI -->> V: Entrega el error
+            V -->> U: Muestra el mensaje de error
         end
     end
 ```
@@ -169,86 +256,90 @@ sequenceDiagram
 
 ---
 
-## CU-06: Validando formato y rango de los indicadores extraídos
+## CU-06: Cambiando el tipo de gráfico
 
-**Ruta / archivo**: `src/extractor/__init__.py:_validate_inputs` (valida `days`, `indicator`, `interval`) + `src/extractor/indicators.py:compute_indicator` (lanza `ValueError` si datos insuficientes).
-
-> ⚠️ **Divergencia con la memoria**: la tabla describe validación por rango numérico específico ("RSI entre 0 y 100, %B entre 0 y 1, MACD y MAs finitos"). El código actual **no valida el rango del valor calculado**; solo valida el input (nombre del indicador, período, intervalo) y captura errores de cálculo cuando faltan datos. El diagrama refleja el código real.
+> ⚠️ **Reconstruido a partir de la tabla CU-06 y de la captura de pantalla (selector "Velas ▾" sobre el gráfico), no del código fuente** — a diferencia de los demás diagramas de este archivo, no se verificó contra `src/`. No hay una ruta/archivo que citar todavía; confirmar el nombre real del componente/función que redibuja el gráfico antes de dar este diagrama por definitivo.
 
 ```mermaid
 sequenceDiagram
-    participant CI as C_Indicadores
-    participant CE as C_Extractor
-    participant CIn as C_Indicators
-    CI ->> CE: Solicita el indicador del instrumento
-    CE ->> CE: Valida el período, el indicador y el intervalo pedidos
-    alt Parámetros válidos
-        CE ->> CIn: Solicita el cálculo del indicador
-        alt Cálculo exitoso
-            CIn -->> CE: Entrega el valor, la unidad y el nivel de riesgo
-        else Excepción 1 — datos insuficientes o inválidos
-            CIn -->> CE: Informa que no se pudo calcular
-            CE -->> CI: Propaga el error → CU-21
-        end
-    else Excepción 1 — parámetro fuera de rango
-        CE -->> CI: Error "Rango temporal inválido"
+    actor U as Usuario
+    participant V as V_Principal
+    U ->> V: Consulta un indicador (CU-02)
+    V -->> U: Muestra el gráfico de velas japonesas (tipo por defecto)
+    opt Selecciona "Línea" o "Montaña" en el selector de tipo de gráfico
+        U ->> V: Selecciona el nuevo tipo de gráfico
+        V ->> V: Redibuja la serie de precios ya cargada en el nuevo tipo
+        V -->> U: Muestra el gráfico en el tipo seleccionado
     end
 ```
 
-**Notas**: `VALID_PERIODS = (30, 90, 180, 365)` e `INDICATOR_TYPES = ("rsi", "medias_moviles", "macd", "bandas_bollinger")` son las únicas validaciones estrictas del input. Cualquier valor fuera de rango del propio indicador (por ejemplo RSI > 100) sería un error de cálculo, no un caso a validar.
+**Notas**: se asume que el cambio de tipo de gráfico es puramente de presentación en el navegador — reutiliza la serie de precios ya obtenida en CU-02, sin volver a consultar al Extractor. Confirmar este supuesto.
 
 ---
 
-## CU-07: Normalizando los indicadores a una estructura común
+## CU-07: Visualizando los instrumentos en la barra lateral
 
-**Ruta / archivo**: `src/extractor/sources.py:_fetch_yahoo` / `_fetch_alpha_vantage` (normalizan records a `{date, open, high, low, close}`) + `src/extractor/__init__.py:get_indicator` (agrega `symbol`, `source`, `extracted_at`, `period_days`).
+> ⚠️ **Reconstruido a partir de la tabla CU-07 y de la captura de pantalla (barra lateral con precio y variación por acción), no del código fuente** — no hay ruta/archivo verificada todavía. El flujo asume que reutiliza el mismo mecanismo de cotizaciones que CU-17 (cinta de precios); confirmar si de verdad comparten el llamado a Yahoo o si son independientes.
 
 ```mermaid
 sequenceDiagram
-    participant CE as C_Extractor
-    participant Y as Yahoo
-    participant AV as AlphaVantage
-    participant CIn as C_Indicators
-    alt Fuente primaria
-        Y -->> CE: Entrega datos con su propio formato
-        CE ->> CE: Convierte los datos al formato común de precios
-    else Fuente de respaldo
-        AV -->> CE: Entrega datos con otro formato
-        CE ->> CE: Convierte los datos al mismo formato común de precios
+    actor U as Usuario
+    participant V as V_Principal
+    participant CI as C_Instrumentos
+    participant CApi as C_API
+    participant Yahoo
+    U ->> V: Accede a la interfaz principal (CU-14)
+    V ->> CI: Solicita el listado con precio y variación
+    CI ->> CApi: Solicita la cotización de las 30 acciones del IPSA
+    CApi ->> Yahoo: Consulta el precio actual de las 30 acciones del IPSA
+    alt Cotizaciones disponibles
+        Yahoo -->> CApi: Entrega precio y variación de cada acción
+        CApi -->> CI: Entrega precio y variación de cada acción
+        CI -->> V: Entrega el listado con precio y variación
+        V -->> U: Muestra la barra lateral en verde (alza) o rojo (baja)
+    else Excepción 1 — cotizaciones no disponibles
+        Yahoo -->> CApi: Sin respuesta / error
+        CApi -->> CI: Sin respuesta / error
+        CI -->> V: Entrega el listado sin precio ni variación
+        V -->> U: Muestra la barra lateral solo con nombre y sector
     end
-    CE ->> CIn: Solicita el cálculo del indicador
-    CIn -->> CE: Entrega el valor, la unidad y el nivel de riesgo
-    CE ->> CE: Agrega el instrumento, la fuente, la hora y el período
-    CE -->> CE: Entrega un resultado con estructura común, independiente de la fuente
 ```
 
-**Notas**: la normalización tiene dos niveles — primero los datos de precios (uniformes entre Yahoo y Alpha Vantage) y luego el resultado del indicador (uniforme entre RSI, MACD, medias móviles y Bollinger).
+**Notas**: cada fila de la barra lateral muestra nombre, sector, precio actual y variación porcentual, coloreada en verde o rojo según corresponda.
 
 ---
 
-## CU-08: Procesando el indicador mediante el modelo de lenguaje
+## CU-08: Visualizando información de un indicador
 
-**Ruta / archivo**: `src/nlp/explainer.py:generate_explanation` → `_finbert_signal` (carga `ProsusAI/finbert` vía `transformers.pipeline`).
+**Ruta / archivo**: `src/nlp/explainer.py:generate_explanation` → `src/nlp/llm_explainer.py:generate_explanation_llm` (Groq/Qwen3, `USE_LLM=true`) → `_finbert_signal` (FinBERT, `USE_FINBERT=true`).
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CN as C_NLP
+    participant Groq
     participant FB as FinBERT
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CI: Solicita la explicación del indicador
     CI ->> CN: Solicita la explicación del indicador
-    CN ->> CN: Elige la plantilla según indicador, nivel de riesgo y variante
-    CN ->> CN: Completa la plantilla con los datos del indicador
-    CN ->> FB: Solicita la señal de sentimiento del texto
-    alt FinBERT clasifica correctamente
-        FB -->> CN: Entrega la señal de sentimiento
-    else Excepción 1 — el modelo no está disponible o falla
-        FB -->> CN: No se pudo clasificar
-        CN ->> CN: Continúa sin la señal (respaldo silencioso)
+    alt USE_LLM activo
+        CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal)
+        Groq -->> CN: Entrega la explicación generada en español
+    else Respaldo — plantilla predefinida
+        CN ->> CN: Elige la plantilla y completa con los datos del indicador
+    end
+    opt USE_FINBERT activo
+        CN ->> FB: Solicita señal de sentimiento al texto generado
+        FB -->> CN: Entrega la señal (positivo/negativo/neutral)
     end
     CN -->> CI: Entrega el texto, el nivel de riesgo, la variante y la legibilidad
+    CI -->> V: Entrega la explicación
+    V -->> U: Muestra la explicación junto al indicador
 ```
 
-**Notas**: FinBERT está default-on desde el Bloque 2 del refactor (`USE_FINBERT=true`). El respaldo silencioso mantiene el sistema operativo bajo RNF-09.
+**Notas**: cuando `USE_LLM=true`, el LLM (Qwen3 vía Groq) genera el texto en tiempo real. Si el LLM falla o `USE_LLM=false`, el sistema cae a plantillas predefinidas (degradación silenciosa, RNF-09). FinBERT clasifica el sentimiento del texto generado independientemente de qué rama produjo el texto.
 
 ---
 
@@ -258,10 +349,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CV as C_Validador
-    participant CS as C_SQLite
-    participant TC as coherence_checks
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CI: Solicita el indicador y su explicación
     CI ->> CV: Solicita validar la explicación contra el dato
     CV ->> CV: Verifica que la etiqueta de riesgo aparezca en el texto
     CV ->> CV: Verifica que el valor numérico esté citado
@@ -271,44 +364,50 @@ sequenceDiagram
     else Excepción 1 — contradicción detectada
         CV -->> CI: Explicación incoherente, con el motivo
     end
-    CI ->> CS: Pide guardar el chequeo de coherencia
-    CS ->> TC: Guarda el chequeo (instrumento, indicador, valor, riesgo, texto, resultado, motivo, estado)
-    TC -->> CS: Confirma que se guardó
+    CI -->> V: Entrega la explicación y el veredicto (coherent, reason)
+    V -->> U: Muestra la tarjeta con la explicación (y un aviso si no es coherente)
 ```
 
-**Notas**: los casos incoherentes quedan con estado "pendiente" para que la investigadora los revise vía CU-08 (Auditoría). Los coherentes se marcan como "revisado" automáticamente.
+**Notas**: el veredicto no se persiste en la base de datos: se devuelve en la respuesta (`coherent`, `reason`) y la interfaz muestra un aviso cuando es `false`. No bloquea la explicación. `query_logs` guarda el valor, el riesgo y la ventana de la consulta, pero no el resultado de la validación.
 
 ---
 
-## CU-10: Generando una explicación comprensible
+## CU-10: Visualizando una explicación del indicador
 
 **Ruta / archivo**: `src/nlp/explainer.py:generate_explanation` — selección de plantilla, llenado, referencia nacional, extra de detalle, truncado a MAX_WORDS, cálculo de legibilidad.
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CN as C_NLP
-    participant CP as C_Perfil
-    participant CR as C_Legibilidad
-    CI ->> CP: Consulta el nivel de detalle del usuario
-    alt El usuario ha regenerado 2 o más veces
-        CP -->> CI: Nivel "detallado"
-    else Otro caso (anónimo o pocas regeneraciones)
-        CP -->> CI: Nivel "estándar"
-    end
+    participant Groq
+    participant FB as FinBERT
+    U ->> V: Consulta un indicador
+    V ->> CI: Solicita la explicación del indicador
     CI ->> CN: Solicita la explicación con el nivel de detalle
-    CN ->> CN: Elige la plantilla según indicador, nivel de riesgo y variante
-    CN ->> CN: Completa la plantilla con los datos
-    opt Aplica una referencia nacional
-        CN ->> CN: Agrega una frase de contexto nacional del indicador
+    alt USE_LLM activo
+        CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal, nivel de detalle)
+        Groq -->> CN: Entrega la explicación generada en español
+    else Respaldo — plantilla predefinida
+        CN ->> CN: Elige la plantilla y completa con los datos del indicador
+        opt Aplica una referencia nacional
+            CN ->> CN: Agrega una frase de contexto nacional del indicador
+        end
+        opt Nivel "detallado"
+            CN ->> CN: Agrega una frase de detalle adicional del indicador
+        end
     end
-    opt Nivel "detallado"
-        CN ->> CN: Agrega una frase de detalle adicional del indicador
+    opt USE_FINBERT activo
+        CN ->> FB: Solicita señal de sentimiento al texto generado
+        FB -->> CN: Entrega la señal (positivo/negativo/neutral)
     end
     CN ->> CN: Recorta el texto a un máximo de 150 palabras
-    CN ->> CR: Solicita el puntaje de legibilidad
-    CR -->> CN: Entrega el puntaje de legibilidad
+    CN ->> CN: Calcula el puntaje de legibilidad (Fernández-Huerta)
     CN -->> CI: Entrega el texto, la variante y la legibilidad
+    CI -->> V: Entrega la explicación
+    V -->> U: Muestra la explicación en lenguaje natural
 ```
 
 **Notas**: RF-04.2 (extensión ≤ 150 palabras) se satisface al recortar el texto. RNF-04.1 (legibilidad Fernández-Huerta) se calcula pero no se rechaza el texto si no cumple — solo se registra el puntaje.
@@ -317,17 +416,23 @@ sequenceDiagram
 
 ---
 
-## CU-11: Adaptando el nivel de detalle al usuario no experto
+## CU-11: Visualizando explicaciones adaptadas a su nivel
 
 **Ruta / archivo**: `src/profile/service.py:get_detail_level` (consulta `query_logs`), invocado desde `src/web/routes.py:_run_query` antes de pasar `detail_level` al Procesador NLP. La adaptación efectiva la aplica `src/nlp/explainer.py:generate_explanation` agregando `DETAIL_EXTRAS[indicador]` si el nivel es "detallado".
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CI as C_Indicadores
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
     participant CN as C_NLP
+    participant Groq
+    participant FB as FinBERT
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CI: Solicita la explicación del indicador
     CI ->> CP: Consulta el nivel de detalle del usuario para el indicador
     CP ->> CS: Pide contar las regeneraciones del usuario para ese indicador
     CS ->> TQ: Cuenta las regeneraciones del usuario para el indicador
@@ -339,17 +444,29 @@ sequenceDiagram
         CP -->> CI: Nivel "estándar"
     end
     CI ->> CN: Solicita la explicación con el nivel de detalle
-    opt Nivel "detallado"
-        CN ->> CN: Agrega una frase de detalle adicional del indicador
+    alt USE_LLM activo
+        CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal, nivel de detalle)
+        Groq -->> CN: Entrega la explicación generada en español
+    else Respaldo — plantilla predefinida
+        CN ->> CN: Elige la plantilla y completa con los datos del indicador
+        opt Nivel "detallado"
+            CN ->> CN: Agrega una frase de detalle adicional del indicador
+        end
+    end
+    opt USE_FINBERT activo
+        CN ->> FB: Solicita señal de sentimiento al texto generado
+        FB -->> CN: Entrega la señal (positivo/negativo/neutral)
     end
     CN -->> CI: Entrega la explicación adaptada al nivel del usuario
+    CI -->> V: Entrega la explicación
+    V -->> U: Muestra la explicación adaptada a su nivel
 ```
 
 **Notas**: para usuarios anónimos (`user_id` = None) el nivel es siempre "estándar" y no se consulta la BD.
 
 ---
 
-## CU-12: Clasificando el nivel de riesgo del indicador
+## CU-12: Visualizando el nivel de riesgo del indicador
 
 **Ruta / archivo**: `src/extractor/indicators.py:compute_rsi`, `compute_moving_averages`, `compute_macd`, `compute_bollinger_bands`. Cada función clasifica su propio `risk_level` a partir de umbrales internos (no depende del NLP).
 
@@ -357,23 +474,32 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
+    participant V as V_Principal
     participant CE as C_Extractor
-    participant CIn as C_Indicators
-    CE ->> CIn: Solicita el cálculo del indicador
+    participant CC as C_Cache
+    participant TTL as TTLCache
+    U ->> V: Consulta un indicador (CU-02)
+    V ->> CE: Solicita el indicador del instrumento
+    CE ->> CC: Solicita la serie de precios (símbolo, días)
+    CC ->> TTL: Busca entrada (símbolo, días)
+    TTL -->> CC: Entrega la serie de precios
+    CC -->> CE: Entrega la serie de precios
     alt Indicador = RSI
-        CIn ->> CIn: Calcula el RSI (14 días)
-        CIn ->> CIn: Clasifica: mayor a 70 o menor a 30 alto, 40-60 medio, resto bajo
+        CE ->> CE: Calcula el RSI (14 días)
+        CE ->> CE: Clasifica: mayor a 70 o menor a 30 alto, 40-60 medio, resto bajo
     else Indicador = medias móviles
-        CIn ->> CIn: Calcula la media corta y la media larga
-        CIn ->> CIn: Clasifica por diferencia porcentual: 10% o más alto, menos de 3% medio, resto bajo
+        CE ->> CE: Calcula la media corta y la media larga
+        CE ->> CE: Clasifica por diferencia porcentual: 10% o más alto, menos de 3% medio, resto bajo
     else Indicador = MACD
-        CIn ->> CIn: Calcula el MACD, la señal y el histograma
-        CIn ->> CIn: Clasifica por magnitud del histograma: fuerte alto, moderada medio, resto bajo
+        CE ->> CE: Calcula el MACD, la señal y el histograma
+        CE ->> CE: Clasifica por magnitud del histograma: fuerte alto, moderada medio, resto bajo
     else Indicador = Bandas de Bollinger
-        CIn ->> CIn: Calcula el %B respecto a las bandas
-        CIn ->> CIn: Clasifica: %B fuera de 0-1 alto, cercano a los extremos medio, resto bajo
+        CE ->> CE: Calcula el %B respecto a las bandas
+        CE ->> CE: Clasifica: %B fuera de 0-1 alto, cercano a los extremos medio, resto bajo
     end
-    CIn -->> CE: Entrega el valor, la unidad, el nivel de riesgo y la señal/tendencia
+    CE -->> V: Entrega el indicador con su nivel de riesgo
+    V -->> U: Muestra el nivel de riesgo del indicador
 ```
 
 **Notas**: la clasificación es determinística y por indicador. Se persiste en `QueryLog.risk_level` a través del flujo de CU-03.
@@ -391,20 +517,29 @@ sequenceDiagram
     participant CI as C_Indicadores
     participant CE as C_Extractor
     participant CN as C_NLP
-    participant CS as C_SQLite
+    participant Groq
+    participant FB as FinBERT
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
-    participant TC as coherence_checks
     U ->> V: Clic en "No entendí esto"
     V ->> CI: Pide regenerar la explicación del indicador
     CI ->> CE: Solicita el indicador del instrumento
     CE -->> CI: Entrega los datos del indicador
     CI ->> CN: Solicita una redacción alternativa (variante siguiente)
     alt Existe una variante distinta
+        alt USE_LLM activo
+            CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal)
+            Groq -->> CN: Entrega la explicación generada en español
+        else Respaldo — plantilla predefinida
+            CN ->> CN: Elige la plantilla de la variante siguiente
+        end
+        opt USE_FINBERT activo
+            CN ->> FB: Solicita señal de sentimiento al texto generado
+            FB -->> CN: Entrega la señal (positivo/negativo/neutral)
+        end
         CN -->> CI: Entrega la nueva redacción
         CI ->> CS: Pide guardar el registro de la regeneración
         CS ->> TQ: Guarda el registro (marca de regeneración, nueva variante)
-        CI ->> CS: Pide guardar el chequeo de coherencia de la nueva explicación
-        CS ->> TC: Guarda el chequeo
         CI -->> V: Entrega la nueva explicación
         V -->> U: Muestra la nueva explicación en la tarjeta
     else Excepción 1 — sin más variantes
@@ -425,16 +560,14 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor U as Usuario
-    participant N as Navegador
     participant V as V_Principal
-    U ->> N: Abre la URL del sistema
-    N ->> V: Solicita la página principal
+    participant CI as C_Indicadores
+    U ->> CI: GET / (abre la URL del sistema)
     alt El servidor responde
-        V -->> N: Entrega la página del dashboard
-        N -->> U: Muestra la interfaz principal
+        CI -->> V: Renderiza la página principal
+        V -->> U: Muestra la interfaz principal
     else Excepción 1 — el servidor no responde
-        V -->> N: Sin respuesta / error de conexión
-        N -->> U: Página de error del navegador
+        CI -->> U: Página de error del navegador
     end
 ```
 
@@ -453,13 +586,61 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Principal
     participant CI as C_Indicadores
+    participant CE as C_Extractor
+    participant CC as C_Cache
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant Yahoo
     U ->> V: Selecciona un instrumento (viene de CU-01)
     V ->> V: Toma la lista de los cuatro indicadores
     par Cuatro indicadores en paralelo
         V ->> CI: Solicita el RSI
+        CI ->> CE: Solicita el RSI del instrumento
+        CE ->> CC: Solicita la serie de precios (símbolo, días)
+        CC ->> TTL: Busca entrada
+        TTL -->> CC: Entrega la serie / sin entrada
+        CC -->> CE: Entrega la serie o vacío
+        CE ->> CApi: Solicita el historial si caché vacía
+        CApi ->> Yahoo: Consulta el historial de precios
+        Yahoo -->> CApi: Entrega el historial
+        CApi -->> CE: Entrega el historial
+        CE -->> CI: Entrega el valor, riesgo y serie del RSI
+    and
         V ->> CI: Solicita las medias móviles
+        CI ->> CE: Solicita las medias móviles del instrumento
+        CE ->> CC: Solicita la serie de precios (símbolo, días)
+        CC ->> TTL: Busca entrada
+        TTL -->> CC: Entrega la serie / sin entrada
+        CC -->> CE: Entrega la serie o vacío
+        CE ->> CApi: Solicita el historial si caché vacía
+        CApi ->> Yahoo: Consulta el historial de precios
+        Yahoo -->> CApi: Entrega el historial
+        CApi -->> CE: Entrega el historial
+        CE -->> CI: Entrega el valor, riesgo y serie de las medias
+    and
         V ->> CI: Solicita el MACD
+        CI ->> CE: Solicita el MACD del instrumento
+        CE ->> CC: Solicita la serie de precios (símbolo, días)
+        CC ->> TTL: Busca entrada
+        TTL -->> CC: Entrega la serie / sin entrada
+        CC -->> CE: Entrega la serie o vacío
+        CE ->> CApi: Solicita el historial si caché vacía
+        CApi ->> Yahoo: Consulta el historial de precios
+        Yahoo -->> CApi: Entrega el historial
+        CApi -->> CE: Entrega el historial
+        CE -->> CI: Entrega el valor, riesgo y serie del MACD
+    and
         V ->> CI: Solicita las Bandas de Bollinger
+        CI ->> CE: Solicita las Bandas de Bollinger del instrumento
+        CE ->> CC: Solicita la serie de precios (símbolo, días)
+        CC ->> TTL: Busca entrada
+        TTL -->> CC: Entrega la serie / sin entrada
+        CC -->> CE: Entrega la serie o vacío
+        CE ->> CApi: Solicita el historial si caché vacía
+        CApi ->> Yahoo: Consulta el historial de precios
+        Yahoo -->> CApi: Entrega el historial
+        CApi -->> CE: Entrega el historial
+        CE -->> CI: Entrega el valor, riesgo y serie de las Bandas
     end
     CI -->> V: Entrega las cuatro respuestas con valor, explicación y riesgo
     V -->> U: Muestra las cuatro tarjetas de indicadores
@@ -478,8 +659,25 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Base
     participant CT as C_Ticker
+    participant CE as C_Extractor
+    participant CApi as C_API
+    participant BCCh
+    participant Yahoo
     U ->> V: Accede a cualquier página del sistema
     V ->> CT: Solicita los datos de la cinta
+    CT ->> CE: Pide los indicadores macro y las cotizaciones
+    par Macro chileno y cotizaciones en paralelo
+        CE ->> CApi: Solicita indicadores macro
+        CApi ->> BCCh: Consulta UF, dólar, TPM e IPC (mindicador.cl)
+        BCCh -->> CApi: Entrega los datos macro
+        CApi -->> CE: Entrega los datos macro
+    and
+        CE ->> CApi: Solicita cotizaciones
+        CApi ->> Yahoo: Consulta precio y variación de IPSA y las 30 acciones
+        Yahoo -->> CApi: Entrega las cotizaciones
+        CApi -->> CE: Entrega las cotizaciones
+    end
+    CE -->> CT: Entrega macro + cotizaciones
     CT -->> V: Entrega el macro (IPSA, UF, dólar, TPM, IPC) y las 30 acciones
     V -->> U: Muestra la cinta desplazándose en loop continuo
     opt El usuario pasa el cursor sobre la cinta
@@ -494,45 +692,66 @@ sequenceDiagram
 
 ---
 
-## CU-17: Desplegando el contenido de la cinta de precios
+## CU-17: Consultando el detalle de la cinta de precios
 
 **Ruta / archivo**: `src/web/routes.py:api_ticker` — combina `get_macro_indicators()` (mindicador.cl) con `get_quotes()` (Yahoo Finance, incluye IPSA + las 30 acciones).
 
 ```mermaid
 sequenceDiagram
+    actor U as Usuario
     participant V as V_Base
     participant CT as C_Ticker
     participant CE as C_Extractor
     participant CC as C_Cache
-    participant B as BCCh
-    participant Y as Yahoo
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant BCCh
+    participant Yahoo
+    U ->> V: Accede a cualquier página del sistema
     V ->> CT: Solicita los datos de la cinta
     par Macro chileno y cotizaciones en paralelo
         CT ->> CE: Pide los indicadores macroeconómicos
         CE ->> CC: Consulta si hay datos recientes
+        CC ->> TTL: Busca entrada macro
         alt Datos en caché vigentes
-            CC -->> CE: Entrega UF, dólar, TPM e IPC guardados
+            TTL -->> CC: Entrega UF, dólar, TPM e IPC guardados
+            CC -->> CE: Entrega los datos macro del caché
         else Sin datos o caché vencida
-            CE ->> B: Solicita los indicadores macro
-            B -->> CE: Entrega los datos macro
+            TTL -->> CC: Sin entrada válida
+            CC -->> CE: Caché vacía o vencida
+            CE ->> CApi: Solicita los indicadores macro
+            CApi ->> BCCh: Consulta UF, dólar, TPM e IPC (mindicador.cl)
+            BCCh -->> CApi: Entrega los datos macro
+            CApi -->> CE: Entrega los datos macro
             CE ->> CC: Guarda los datos en caché
+            CC ->> TTL: Almacena entrada con TTL de 5 min
+            TTL -->> CC: Confirmación
         end
         CE -->> CT: Entrega los datos macro
     and
         CT ->> CE: Pide las cotizaciones del IPSA y las 30 acciones
         CE ->> CC: Consulta si hay datos recientes
+        CC ->> TTL: Busca entrada cotizaciones
         alt Datos en caché vigentes
-            CC -->> CE: Entrega las cotizaciones guardadas
+            TTL -->> CC: Entrega las cotizaciones guardadas
+            CC -->> CE: Entrega las cotizaciones del caché
         else Sin datos o caché vencida
-            CE ->> Y: Solicita las cotizaciones
-            Y -->> CE: Entrega precio y variación diaria por instrumento
+            TTL -->> CC: Sin entrada válida
+            CC -->> CE: Caché vacía o vencida
+            CE ->> CApi: Solicita las cotizaciones
+            CApi ->> Yahoo: Consulta precio y variación de IPSA y las 30 acciones
+            Yahoo -->> CApi: Entrega precio y variación diaria por instrumento
+            CApi -->> CE: Entrega precio y variación diaria por instrumento
             CE ->> CC: Guarda las cotizaciones en caché
+            CC ->> TTL: Almacena entrada con TTL de 5 min
+            TTL -->> CC: Confirmación
         end
         CE -->> CT: Entrega las cotizaciones
     end
     CT ->> CT: Ordena la cinta: IPSA, UF, dólar, TPM, IPC y las 30 acciones
     CT ->> CT: Colorea en verde las variaciones positivas y en rojo las negativas
     CT -->> V: Entrega la secuencia de la cinta
+    V -->> U: Muestra la cinta de precios
 ```
 
 **Notas**: si BCCh no responde, la cinta muestra solo IPSA y las acciones (degradación tolerada por RNF-09). No toca BD.
@@ -545,9 +764,29 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CI as C_Indicadores
-    participant V as V_Principal
     actor U as Usuario
+    participant V as V_Principal
+    participant CI as C_Indicadores
+    participant CE as C_Extractor
+    participant CN as C_NLP
+    participant Groq
+    participant FB as FinBERT
+    U ->> V: Consulta un indicador (CU-02, CU-10)
+    V ->> CI: Solicita el valor y la explicación
+    CI ->> CE: Solicita el valor e indicadores del instrumento
+    CE -->> CI: Entrega la serie procesada con valor y nivel de riesgo
+    CI ->> CN: Solicita la explicación del indicador
+    alt USE_LLM activo
+        CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal)
+        Groq -->> CN: Entrega la explicación generada en español
+    else Respaldo — plantilla predefinida
+        CN ->> CN: Elige la plantilla y completa con los datos del indicador
+    end
+    opt USE_FINBERT activo
+        CN ->> FB: Solicita señal de sentimiento al texto generado
+        FB -->> CN: Entrega la señal (positivo/negativo/neutral)
+    end
+    CN -->> CI: Entrega el texto explicativo
     CI -->> V: Entrega el valor, la unidad, el nivel de riesgo y la explicación
     V ->> V: Arma la tarjeta del indicador
     V ->> V: Compone el valor numérico, la unidad, la etiqueta de riesgo y el texto explicativo
@@ -564,10 +803,22 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant CI as C_Indicadores
-    participant V as V_Principal
     actor U as Usuario
-    CI -->> V: Entrega el nivel de riesgo y, según el indicador, la tendencia
+    participant V as V_Principal
+    participant CI as C_Indicadores
+    participant CE as C_Extractor
+    participant CC as C_Cache
+    participant TTL as TTLCache
+    U ->> V: Consulta un indicador (CU-02, CU-12)
+    V ->> CI: Solicita el nivel de riesgo del indicador
+    CI ->> CE: Solicita el nivel de riesgo del instrumento
+    CE ->> CC: Solicita la serie de precios (símbolo, días)
+    CC ->> TTL: Busca entrada (símbolo, días)
+    TTL -->> CC: Entrega la serie de precios
+    CC -->> CE: Entrega la serie de precios
+    CE ->> CE: Clasifica el nivel de riesgo según los umbrales del indicador
+    CE -->> CI: Entrega el nivel de riesgo y, según el indicador, la tendencia
+    CI -->> V: Entrega el nivel de riesgo y la tendencia
     V ->> V: Determina el color de la etiqueta (bajo, medio, alto, alcista o bajista)
     V ->> V: Determina el texto de la etiqueta ("riesgo bajo", "alcista", etc.)
     V -->> U: Muestra la etiqueta coloreada con su ícono junto a la tarjeta
@@ -586,14 +837,50 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Principal
     participant CI as C_Indicadores
+    participant CE as C_Extractor
+    participant CC as C_Cache
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant Yahoo
+    participant CN as C_NLP
+    participant Groq
+    participant FB as FinBERT
     U ->> V: Selecciona un instrumento o pide regenerar
     V ->> V: Muestra el mensaje "Generando explicación…"
     V ->> CI: Solicita el indicador
     alt Respuesta antes de 5 segundos (RNF-01.1)
+        CI ->> CE: Solicita el indicador del instrumento
+        CE ->> CC: Solicita la serie de precios
+        CC ->> TTL: Busca entrada (símbolo, días)
+        TTL -->> CC: Entrega la serie de precios
+        CC -->> CE: Entrega la serie de precios
+        CE -->> CI: Entrega los datos del indicador
+        CI ->> CN: Solicita la explicación del indicador
+        alt USE_LLM activo
+            CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal)
+            Groq -->> CN: Entrega la explicación generada en español
+        else Respaldo — plantilla predefinida
+            CN ->> CN: Elige la plantilla y completa con los datos del indicador
+        end
+        opt USE_FINBERT activo
+            CN ->> FB: Solicita señal de sentimiento al texto generado
+            FB -->> CN: Entrega la señal (positivo/negativo/neutral)
+        end
+        CN -->> CI: Entrega la explicación
         CI -->> V: Entrega la respuesta con datos
         V ->> V: Oculta el mensaje de carga
         V -->> U: Muestra la tarjeta con el resultado
     else Excepción 1 — demora o error
+        CI ->> CE: Solicita el indicador del instrumento
+        CE ->> CC: Solicita la serie de precios
+        CC ->> TTL: Busca entrada (símbolo, días)
+        TTL -->> CC: Sin entrada válida
+        CC -->> CE: Caché vacía o vencida
+        CE ->> CApi: Solicita el historial de precios
+        CApi ->> Yahoo: Consulta el historial (con reintentos)
+        Yahoo -->> CApi: Error o tiempo agotado
+        CApi -->> CE: Error o tiempo agotado
+        CE -->> CI: Error o tiempo agotado
         CI -->> V: Error o tiempo agotado
         V ->> V: Oculta el mensaje de carga
         V -->> U: Muestra un mensaje de error (CU-21)
@@ -614,13 +901,31 @@ sequenceDiagram
     participant V as V_Principal
     participant CI as C_Indicadores
     participant CE as C_Extractor
+    participant CC as C_Cache
+    participant TTL as TTLCache
+    participant CApi as C_API
+    participant Yahoo
+    participant AlphaVantage
+    U ->> V: Consulta un indicador (CU-02)
     V ->> CI: Solicita el indicador
     CI ->> CE: Solicita el indicador del instrumento
-    alt Datos válidos
+    CE ->> CC: Consulta si hay datos en caché
+    CC ->> TTL: Busca entrada (símbolo, días)
+    alt Datos válidos en caché
+        TTL -->> CC: Entrega los datos guardados
+        CC -->> CE: Entrega los datos del caché
         CE -->> CI: Entrega los datos
         CI -->> V: Entrega el valor y la explicación
         V -->> U: Muestra la tarjeta
-    else Excepción 1 — falla del Extractor tras los reintentos (RNF-09.2)
+    else Falla propagada desde CU-02 (RNF-09.2) — Extractor agotó los reintentos
+        TTL -->> CC: Sin entrada válida
+        CC -->> CE: Caché vacía o vencida
+        CE ->> CApi: Solicita el historial de precios
+        CApi ->> Yahoo: Consulta el historial (con reintentos)
+        Yahoo -->> CApi: Falla persistente tras los reintentos
+        CApi ->> AlphaVantage: Solicita el historial (respaldo)
+        AlphaVantage -->> CApi: Falla persistente
+        CApi -->> CE: No se pudo obtener el historial de precios
         CE -->> CI: Informa que no se pudo obtener el instrumento
         CI -->> V: Entrega un mensaje de error sin códigos técnicos
         V ->> V: Prepara el mensaje para el usuario
@@ -676,22 +981,21 @@ sequenceDiagram
 sequenceDiagram
     actor U as Usuario
     participant V as V_Historial
-    participant CH as C_Historial
-    participant SF as SesionFlask
+    participant CS as C_Sesion
+    participant Cook as CookieSesión
     U ->> V: Accede al historial
-    V ->> CH: Solicita el historial de la sesión
-    CH ->> SF: Consulta el historial guardado en la sesión
-    SF -->> CH: Entrega las últimas 5 consultas de la sesión activa
+    V ->> CS: Solicita el historial de la sesión
+    CS ->> Cook: Lee session["history"] de la cookie firmada
+    Cook -->> CS: Entrega las últimas 5 consultas (o lista vacía)
+    CS -->> V: Entrega las últimas 5 consultas de la sesión activa (o vacío)
     alt Existen consultas
-        CH -->> V: Entrega la lista de consultas
         V -->> U: Muestra las últimas 5 consultas con su fecha y hora
     else Excepción 1 — historial vacío
-        CH -->> V: Sin consultas
         V -->> U: "Aún no has realizado consultas en esta sesión"
     end
 ```
 
-**Notas**: el historial vive en la **cookie de sesión Flask**, no en la BD. Se limita a las últimas 5 consultas (RF-10.1) y se pierde al cerrar el navegador. Por eso no aparecen ni `C_SQLite` ni tabla.
+**Notas**: el historial vive en la **cookie de sesión Flask**, no en la BD. Se limita a las últimas 5 consultas (RF-10.1) y se pierde al cerrar el navegador. Por eso no aparecen ni `C_PostgreSQL` ni tabla.
 
 ---
 
@@ -704,7 +1008,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Registro
     participant CA as C_Autenticacion
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TU as users
     U ->> V: Completa correo, contraseña y (opcional) casillero de consentimiento
     V ->> CA: Envía los datos de registro
@@ -730,7 +1034,7 @@ sequenceDiagram
     end
 ```
 
-**Notas**: el registro deja al usuario autenticado sin pedir un login adicional (RF-11 mejorado). El consentimiento a evaluación se registra opcionalmente en `users.acepta_evaluacion` (movido desde el banner al registro en el Bloque 3 del refactor).
+**Notas**: el registro deja al usuario autenticado sin pedir un login adicional (RF-11 mejorado). El registro admite además un nivel de experiencia opcional (`users.experience_level`) que fija el nivel inicial de las explicaciones.
 
 ---
 
@@ -747,7 +1051,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Login
     participant CA as C_Autenticacion
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TU as users
     U ->> V: Ingresa correo y contraseña
     V ->> CA: Envía las credenciales
@@ -773,7 +1077,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Login
     participant CA as C_Autenticacion
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TR as revoked_tokens
     U ->> V: Clic en "Cerrar sesión"
     V ->> CA: Solicita cerrar la sesión
@@ -800,7 +1104,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TIV as instrument_visits
     participant TQ as query_logs
     U ->> V: Accede a su perfil (autenticado)
@@ -844,9 +1148,11 @@ sequenceDiagram
     participant V as V_Principal
     participant CI as C_Indicadores
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
     participant CN as C_NLP
+    participant Groq
+    participant FB as FinBERT
     U ->> V: Consulta un indicador (autenticado)
     V ->> CI: Solicita el indicador
     CI ->> CP: Consulta el nivel de detalle del usuario para el indicador
@@ -860,6 +1166,16 @@ sequenceDiagram
         CP -->> CI: Nivel "estándar"
     end
     CI ->> CN: Solicita la explicación con el nivel de detalle
+    alt USE_LLM activo
+        CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal, nivel de detalle)
+        Groq -->> CN: Entrega la explicación generada en español
+    else Respaldo — plantilla predefinida
+        CN ->> CN: Elige la plantilla y completa con los datos del indicador
+    end
+    opt USE_FINBERT activo
+        CN ->> FB: Solicita señal de sentimiento al texto generado
+        FB -->> CN: Entrega la señal (positivo/negativo/neutral)
+    end
     CN -->> CI: Entrega el texto adaptado
     CI -->> V: Entrega la explicación ajustada al perfil
     V -->> U: Muestra la tarjeta con el nivel de detalle acorde a su historial
@@ -878,7 +1194,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
     U ->> V: Accede a su perfil
     V ->> CP: Solicita construir el perfil de aprendizaje
@@ -906,7 +1222,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TIV as instrument_visits
     U ->> V: Accede a su perfil
     V ->> CP: Solicita construir el perfil de aprendizaje
@@ -934,7 +1250,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TIV as instrument_visits
     participant TQ as query_logs
     U ->> V: Accede a su perfil
@@ -968,7 +1284,7 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
     U ->> V: Accede a su perfil
     V ->> CP: Solicita construir el perfil de aprendizaje
@@ -997,10 +1313,12 @@ sequenceDiagram
     actor U as Usuario
     participant V as V_Perfil
     participant CP as C_Perfil
-    participant CS as C_SQLite
+    participant CS as C_PostgreSQL
     participant TQ as query_logs
     participant CE as C_Extractor
     participant CN as C_NLP
+    participant Groq
+    participant FB as FinBERT
     U ->> V: Abre su perfil
     V ->> CP: Solicita construir el perfil de aprendizaje
     CP ->> CS: Pide la última explicación del indicador más difícil
@@ -1019,6 +1337,16 @@ sequenceDiagram
         CP ->> CE: Solicita los datos frescos del indicador
         CE -->> CP: Entrega los datos
         CP ->> CN: Solicita una nueva redacción (variante siguiente, nivel detallado)
+        alt USE_LLM activo
+            CN ->> Groq: Envía los datos del indicador (empresa, valor, riesgo, señal)
+            Groq -->> CN: Entrega la explicación generada en español
+        else Respaldo — plantilla predefinida
+            CN ->> CN: Elige la plantilla de la variante siguiente
+        end
+        opt USE_FINBERT activo
+            CN ->> FB: Solicita señal de sentimiento al texto generado
+            FB -->> CN: Entrega la señal (positivo/negativo/neutral)
+        end
         CN -->> CP: Entrega la nueva redacción
         CP ->> CS: Pide guardar el registro de la regeneración
         CS ->> TQ: Guarda el registro
@@ -1042,8 +1370,8 @@ sequenceDiagram
 | CU-05 | ⚠️ Parcial | TTL 5 min sí; stale-while-error de la Excepción 1 **no** |
 | CU-06 | ⚠️ Parcial | Valida input; **no** valida rango del valor calculado |
 | CU-07 | ✅ Implementado | Doble normalización (precios + resultado del indicador) |
-| CU-08 | ✅ Implementado | FinBERT default-on con respaldo silencioso |
-| CU-09 | ✅ Implementado | Persiste `coherence_checks` con motivo |
+| CU-08 | ✅ Implementado | LLM (Qwen3/Groq) genera texto; FinBERT clasifica sentimiento; respaldo silencioso a plantillas |
+| CU-09 | ✅ Implementado | Valida coherencia; resultado retornado en la respuesta (no persiste en BD) |
 | CU-10 | ✅ Implementado | Perfil adaptativo + plantillas + legibilidad |
 | CU-11 | ✅ Implementado | `get_detail_level` + `DETAIL_EXTRAS` |
 | CU-12 | ⚠️ Parcial | La clasificación NO depende del ancho de Bandas de Bollinger como dice la memoria; cada indicador tiene sus propios umbrales |

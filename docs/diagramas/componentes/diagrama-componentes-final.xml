@@ -1,0 +1,94 @@
+<mxfile host="app.diagrams.net" modified="2026-08-21" agent="UML Architect" version="1.0">
+  <diagram id="appfint-final" name="Diagrama de Componentes - Appfint">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" background="#ffffff" math="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- TITULO -->
+        <mxCell id="title" value="Diagrama de Componentes — Appfint" style="text;html=1;fontSize=16;fontStyle=bold;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="50" y="20" width="1050" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ACTOR -->
+        <mxCell id="actor" value="Usuario" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#e2e8f0;strokeColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="50" y="200" width="30" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- NODO 1: CLIENTE (FRONTEND) -->
+        <mxCell id="node-client" value="Cliente Web" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#eff6ff;strokeColor=#1d4ed8;fontStyle=1;align=center;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="140" y="140" width="180" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-frontend" value="Frontend&#10;(HTML / JS)" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#1d4ed8;fontSize=11;align=center;" vertex="1" parent="node-client">
+          <mxGeometry x="20" y="60" width="140" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- NODO 2: SERVIDOR BACKEND -->
+        <mxCell id="node-backend" value="Servidor Backend (Flask / Python)" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;align=center;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="400" y="80" width="420" height="320" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-routes" value="Web/Routes&#10;Orquestación" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1976d2;fontSize=10;" vertex="1" parent="node-backend">
+          <mxGeometry x="30" y="50" width="360" height="45" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-extractor" value="Extractor&#10;Indicadores" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;" vertex="1" parent="node-backend">
+          <mxGeometry x="30" y="115" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-nlp" value="NLP&#10;Explicaciones" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;" vertex="1" parent="node-backend">
+          <mxGeometry x="230" y="115" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-auth" value="Auth&#10;Autenticación" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;" vertex="1" parent="node-backend">
+          <mxGeometry x="30" y="195" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-profile" value="Profile&#10;Adaptativo" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=10;" vertex="1" parent="node-backend">
+          <mxGeometry x="230" y="195" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-cache" value="Caché TTL&#10;En memoria" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#fffbea;strokeColor=#b45309;fontSize=10;fontStyle=1;" vertex="1" parent="node-backend">
+          <mxGeometry x="30" y="265" width="360" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- NODO 3: BASE DE DATOS -->
+        <mxCell id="node-db" value="Base de Datos" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#fef2f2;strokeColor=#991b1b;fontStyle=1;align=center;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="890" y="120" width="200" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-db" value="PostgreSQL&#10;(appfint)" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#991b1b;fontSize=10;" vertex="1" parent="node-db">
+          <mxGeometry x="25" y="55" width="150" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- NODO 4: SERVICIOS EXTERNOS -->
+        <mxCell id="node-ext" value="APIs de Mercado" style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#f0fdf4;strokeColor=#166534;fontStyle=1;align=center;verticalAlign=top;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="890" y="300" width="200" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="comp-ext" value="Yahoo Finance&#10;Alpha Vantage" style="html=1;dropTarget=0;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#166534;fontSize=10;" vertex="1" parent="node-ext">
+          <mxGeometry x="25" y="50" width="150" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- CONEXIONES PRINCIPALES -->
+        <mxCell id="e1" value="HTTP/AJAX" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#334155;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="actor" target="node-client">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e2" value="API REST" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#334155;fontSize=10;strokeWidth=2;" edge="1" parent="1" source="node-client" target="node-backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e3" value="SQL" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#334155;fontSize=10;" edge="1" parent="1" source="node-backend" target="node-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e4" value="Fetch Datos" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#334155;fontSize=10;" edge="1" parent="1" source="node-backend" target="node-ext">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -33,10 +33,9 @@ Desarrollar un sistema basado en inteligencia artificial para apoyar la comprens
 2. **Identificar** las principales dificultades de comprensión y sesgos cognitivos presentes en inversionistas principiantes, considerando aportes de la teoría de Behavioral Finance asociada a autores como Daniel Kahneman.
 3. **Diseñar** un modelo conceptual que permita transformar información financiera técnica en representaciones simplificadas orientadas a usuarios no expertos.
 4. **Desarrollar** un prototipo de sistema basado en inteligencia artificial que procese datos financieros y genere interpretaciones comprensibles mediante técnicas de procesamiento de lenguaje natural.
-5. **Evaluar** la efectividad del sistema mediante encuestas de comprensión aplicadas a usuarios principiantes, utilizando un análisis comparativo antes/después de la interacción con el sistema.
-6. **Validar** la coherencia entre la información entregada por el sistema y los indicadores financieros originales, asegurando que la simplificación no distorsione el contenido técnico.
+5. **Validar** la coherencia entre la información entregada por el sistema y los indicadores financieros originales, asegurando que la simplificación no distorsione el contenido técnico.
 
-Los seis objetivos están directamente articulados con las fases del marco metodológico: los objetivos 1 y 2 corresponden a la fase de análisis; el objetivo 3, al diseño; el objetivo 4, al desarrollo; los objetivos 5 y 6, a la evaluación y validación.
+Los cinco objetivos están directamente articulados con las fases del marco metodológico: los objetivos 1 y 2 corresponden a la fase de análisis; el objetivo 3, al diseño; el objetivo 4, al desarrollo; el objetivo 5, a la validación.
 
 ## Alcances y limitaciones
 
@@ -58,7 +57,9 @@ El alcance funcional incluye:
 - Identificación y extracción de indicadores financieros desde fuentes de datos abiertas.
 - Generación de explicaciones en lenguaje natural a partir de los indicadores seleccionados.
 - Presentación de la información al usuario mediante una interfaz simplificada.
-- Evaluación del sistema mediante encuestas de comprensión aplicadas a un grupo de usuarios principiantes.
+- Adaptación del nivel de detalle de las explicaciones al comportamiento de cada usuario.
+
+**Fuera del alcance de esta etapa:** la medición de efectividad con usuarios (encuestas de comprensión pre/post). Se retira del prototipo y queda como trabajo futuro; ver `docs/adr/0007-sin-modulo-de-encuestas.md`.
 
 **El sistema no incluirá funcionalidades de predicción de mercado, recomendaciones de compra/venta ni ejecución de transacciones financieras.**
 
@@ -113,7 +114,7 @@ La principal limitación de Cascada para este proyecto es su rigidez: dado que e
 Se selecciona Scrum por su coherencia con tres características centrales del proyecto:
 
 1. La **naturaleza exploratoria** del trabajo con modelos de lenguaje, donde el desempeño real solo se valida empíricamente y puede requerir ajustes iterativos.
-2. La **necesidad de validación temprana y continua con usuarios**, contemplada explícitamente en los objetivos específicos (evaluación de comprensión y validación de coherencia), lo que se alinea naturalmente con la revisión de sprint.
+2. La **necesidad de validación temprana y continua con usuarios**, contemplada en los objetivos específicos (validación de coherencia) y en la revisión de cada sprint, lo que se alinea naturalmente con la revisión de sprint.
 3. La **escala del proyecto**, que —aunque individual— se beneficia de la estructura de trabajo por ciclos cortos para mantener trazabilidad y control de avance.
 
 ## Marco arquitectónico: modelo 4+1
@@ -131,7 +132,7 @@ El sistema se describe siguiendo el **modelo de vistas 4+1** propuesto por Kruch
 - Los objetivos específicos 1 y 2 (**analizar** e **identificar**) alimentan el marco teórico y la selección de indicadores.
 - El objetivo 3 (**diseñar**) se materializa en las Fases 3 a 8 de esta documentación (casos de uso, modelo de datos, arquitectura, patrones, secuencia, clases).
 - El objetivo 4 (**desarrollar**) es el prototipo de código descrito en la Fase 9 (stack tecnológico) y organizado por sprints según la planificación.
-- Los objetivos 5 y 6 (**evaluar** y **validar**) se documentan en la Fase 10 (pruebas y validación) y se sostienen en el Módulo de Evaluación de la vista lógica.
+- El objetivo 5 (**validar**) se documenta en la Fase 10 (pruebas y validación) y se sostiene en el validador de coherencia (`src/nlp/validator.py`).
 
 ## Referencias
 

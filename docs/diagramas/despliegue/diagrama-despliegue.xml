@@ -1,0 +1,282 @@
+<mxfile host="app.diagrams.net" modified="2026-08-29" agent="Deployment-Diagram-Appfint-v2" version="21.0.0">
+  <diagram id="appfint-dep-v2" name="Diagrama de Despliegue — Appfint">
+    <mxGraphModel dx="1400" dy="970" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="970" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ════════════════════════════════════════════ -->
+        <!-- TÍTULO                                       -->
+        <!-- ════════════════════════════════════════════ -->
+        <mxCell id="title"
+          value="Diagrama de Despliegue — Appfint"
+          style="text;html=1;fontSize=18;fontStyle=1;align=center;"
+          vertex="1" parent="1">
+          <mxGeometry x="100" y="12" width="1250" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════ -->
+        <!-- ETIQUETAS DE CAPA                            -->
+        <!-- ════════════════════════════════════════════ -->
+        <mxCell id="lbl-server"
+          value="Capa de Servidor"
+          style="text;html=1;fontSize=11;fontStyle=1;align=center;fillColor=#e2e8f0;strokeColor=#475569;rounded=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="350" y="52" width="695" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lbl-apis"
+          value="APIs Externas"
+          style="text;html=1;fontSize=11;fontStyle=1;align=center;fillColor=#dcfce7;strokeColor=#166534;rounded=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="1063" y="52" width="285" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lbl-client"
+          value="Capa de Cliente"
+          style="text;html=1;fontSize=11;fontStyle=1;align=center;fillColor=#dbeafe;strokeColor=#1d4ed8;rounded=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="20" y="663" width="285" height="22" as="geometry" />
+        </mxCell>
+
+        <mxCell id="lbl-db"
+          value="Capa de Datos"
+          style="text;html=1;fontSize=11;fontStyle=1;align=center;fillColor=#fee2e2;strokeColor=#991b1b;rounded=1;"
+          vertex="1" parent="1">
+          <mxGeometry x="563" y="663" width="370" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- NODO: SERVIDOR DE APLICACIÓN BACKEND                    -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <mxCell id="node-server"
+          value="&lt;&lt;device&gt;&gt;&#xa;Servidor de Aplicación Backend"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#f8fafc;strokeColor=#334155;fontStyle=1;fontSize=12;align=center;verticalAlign=top;spacingTop=8;"
+          vertex="1" parent="1">
+          <mxGeometry x="350" y="78" width="695" height="578" as="geometry" />
+        </mxCell>
+
+        <!-- Specs del servidor -->
+        <mxCell id="server-specs"
+          value="SO: Linux / macOS / Windows   ·   Python 3.10+   ·   Flask 3.x   ·   RAM: 2 GB mín.   ·   Red: 10 Mbps mín.   ·   Puerto: 5000 (dev)"
+          style="text;html=1;fontSize=9;align=center;fillColor=#e2e8f0;strokeColor=#94a3b8;rounded=1;"
+          vertex="1" parent="node-server">
+          <mxGeometry x="15" y="58" width="665" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- Python / Flask execution environment -->
+        <mxCell id="env-python"
+          value="&lt;&lt;execution environment&gt;&gt;&#xa;Python 3.10+ / gunicorn (workers) · Flask 3.x"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.02;darkOpacity2=0.04;fillColor=#f1f5f9;strokeColor=#475569;fontSize=10;align=center;verticalAlign=top;spacingTop=6;"
+          vertex="1" parent="node-server">
+          <mxGeometry x="15" y="96" width="665" height="468" as="geometry" />
+        </mxCell>
+
+        <!-- app.py -->
+        <mxCell id="art-app"
+          value="«artifact»  app.py — Punto de Entrada · Registra Blueprints · Inicializa SQLAlchemy + JWT · Puerto 5000"
+          style="shape=mxgraph.uml.artifact;html=1;whiteSpace=wrap;fillColor=#e2e8f0;strokeColor=#475569;fontSize=9;fontStyle=1;align=center;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="46" width="645" height="32" as="geometry" />
+        </mxCell>
+
+        <!-- web/routes.py -->
+        <mxCell id="comp-routes"
+          value="«component»  web/routes.py — Orquestador (Blueprint Flask)&#xa;Rutas: /api/query · /api/chart · /api/ticker · /api/regenerate · /api/perfil/regenerar · /api/glosario/buscar · /history · /perfil · GET /"
+          style="html=1;whiteSpace=wrap;fillColor=#e3f2fd;strokeColor=#1976d2;fontSize=9;fontStyle=1;align=center;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="90" width="645" height="48" as="geometry" />
+        </mxCell>
+
+        <!-- src/extractor -->
+        <mxCell id="comp-extractor"
+          value="«component»&#xa;src/extractor/&#xa;· indicators.py — RSI · MA · MACD · BB&#xa;· sources.py — Yahoo Finance (primario)&#xa;  Alpha Vantage (fallback, 3 reintentos)&#xa;· cache.py — TTLCache(5 min)"
+          style="html=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="152" width="315" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- src/nlp -->
+        <mxCell id="comp-nlp"
+          value="«component»&#xa;src/nlp/&#xa;· explainer.py — Plantillas + FinBERT&#xa;· validator.py — Coherencia explicación&#xa;· glossary.py — Glosario financiero"
+          style="html=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="340" y="152" width="315" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- src/auth -->
+        <mxCell id="comp-auth"
+          value="«component»&#xa;src/auth/&#xa;· routes.py — /api/auth/registro · /login · /logout&#xa;· service.py — bcrypt hash · JWT gen.&#xa;· models.py — User (users table)"
+          style="html=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="266" width="315" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- src/profile -->
+        <mxCell id="comp-profile"
+          value="«component»&#xa;src/profile/&#xa;· routes.py — /perfil · /api/perfil/regenerar&#xa;· service.py — get_detail_level()&#xa;  build_learning_profile()"
+          style="html=1;whiteSpace=wrap;fillColor=#bbdefb;strokeColor=#1565c0;fontSize=9;align=left;spacingLeft=8;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="340" y="266" width="315" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- TTL Cache en memoria -->
+        <mxCell id="comp-cache"
+          value="«memory»  Caché TTL en Memoria — TTLCache(5 min) · Clave: (symbol, days) · Sin persistencia en BD · RNF-09 (rate limits)"
+          style="html=1;whiteSpace=wrap;fillColor=#fffbea;strokeColor=#b45309;fontSize=9;fontStyle=1;align=center;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="380" width="645" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- FinBERT -->
+        <mxCell id="comp-finbert"
+          value="«artifact»  ProsusAI/finbert — Señal de Sentimiento  (opt-in: USE_FINBERT=true en .env   ·   Dependencias: transformers · torch)"
+          style="shape=mxgraph.uml.artifact;html=1;whiteSpace=wrap;fillColor=#fef9c3;strokeColor=#a16207;fontSize=9;fontStyle=2;align=center;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="420" width="645" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- JSON + config -->
+        <mxCell id="art-static"
+          value="«artifact»  data/instruments.json (30 IPSA · solo lectura)          «artifact»  data/glossary.json (Glosario · solo lectura)"
+          style="shape=mxgraph.uml.artifact;html=1;whiteSpace=wrap;fillColor=#f0fdf4;strokeColor=#16a34a;fontSize=9;align=center;"
+          vertex="1" parent="env-python">
+          <mxGeometry x="10" y="460" width="645" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- NODO: APIs EXTERNAS                                      -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <mxCell id="node-apis"
+          value="&lt;&lt;device&gt;&gt;&#xa;Internet — APIs Externas"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#f0fdf4;strokeColor=#166534;fontStyle=1;fontSize=12;align=center;verticalAlign=top;spacingTop=8;"
+          vertex="1" parent="1">
+          <mxGeometry x="1063" y="78" width="285" height="578" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ext-yahoo"
+          value="Yahoo Finance&#xa;Protocolo: HTTPS&#xa;Puerto: 443&#xa;Librería: yfinance&#xa;Función: OHLC · Cotizaciones · IPSA&#xa;(fuente primaria)"
+          style="html=1;whiteSpace=wrap;fillColor=#dcfce7;strokeColor=#166534;fontSize=10;align=center;"
+          vertex="1" parent="node-apis">
+          <mxGeometry x="18" y="60" width="250" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ext-alpha"
+          value="Alpha Vantage&#xa;Protocolo: HTTPS&#xa;Puerto: 443&#xa;Función: OHLC histórico&#xa;(fallback · 3 reintentos previos)"
+          style="html=1;whiteSpace=wrap;fillColor=#dcfce7;strokeColor=#166534;fontSize=10;align=center;"
+          vertex="1" parent="node-apis">
+          <mxGeometry x="18" y="185" width="250" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ext-bcch"
+          value="mindicador.cl (BCCh)&#xa;Protocolo: HTTPS&#xa;Puerto: 443&#xa;Función: UF · Dólar · TPM · IPC&#xa;(contexto macroeconómico)"
+          style="html=1;whiteSpace=wrap;fillColor=#dcfce7;strokeColor=#166534;fontSize=10;align=center;"
+          vertex="1" parent="node-apis">
+          <mxGeometry x="18" y="310" width="250" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- NODO: DISPOSITIVO CLIENTE                                -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <mxCell id="node-client"
+          value="&lt;&lt;device&gt;&gt;&#xa;Dispositivo Cliente"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#eff6ff;strokeColor=#1d4ed8;fontStyle=1;fontSize=12;align=center;verticalAlign=top;spacingTop=8;"
+          vertex="1" parent="1">
+          <mxGeometry x="20" y="690" width="285" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="client-specs"
+          value="SO: Windows / macOS / Linux   ·   RAM: 2 GB mín.   ·   Red: 10 Mbps mín."
+          style="text;html=1;fontSize=9;align=center;fillColor=#dbeafe;strokeColor=#93c5fd;rounded=1;"
+          vertex="1" parent="node-client">
+          <mxGeometry x="10" y="58" width="265" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="env-browser"
+          value="&lt;&lt;execution environment&gt;&gt;&#xa;Navegador Web&#xa;Chrome 90+ · Firefox 88+ · Safari 14+"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.03;fillColor=#dbeafe;strokeColor=#3b82f6;fontSize=9;align=center;verticalAlign=top;spacingTop=5;"
+          vertex="1" parent="node-client">
+          <mxGeometry x="10" y="96" width="265" height="130" as="geometry" />
+        </mxCell>
+
+        <mxCell id="art-frontend"
+          value="Frontend Appfint&#xa;· index.html · base.html · glossary.html&#xa;· dashboard.js · auth.js · app.js · csrf.js&#xa;· style.css"
+          style="html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#3b82f6;fontSize=9;align=left;spacingLeft=6;"
+          vertex="1" parent="env-browser">
+          <mxGeometry x="8" y="46" width="249" height="72" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- NODO: INTERNET (cloud)                                   -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <mxCell id="node-internet"
+          value="INTERNET&#xa;Protocolo: HTTP/HTTPS&#xa;(TLS 1.2+)&#xa;Puerto: 443 / 80"
+          style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#0369a1;fontStyle=1;fontSize=11;"
+          vertex="1" parent="1">
+          <mxGeometry x="328" y="700" width="210" height="190" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- NODO: BASE DE DATOS (POSTGRESQL, NODO SEPARADO)              -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <mxCell id="node-db"
+          value="&lt;&lt;device&gt;&gt;&#xa;Servidor de Base de Datos&#xa;PostgreSQL 14+ (nodo separado, gestionado · TLS)"
+          style="shape=cube;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;darkOpacity=0.05;darkOpacity2=0.1;fillColor=#fef2f2;strokeColor=#991b1b;fontStyle=1;fontSize=11;align=center;verticalAlign=top;spacingTop=8;"
+          vertex="1" parent="1">
+          <mxGeometry x="563" y="690" width="370" height="240" as="geometry" />
+        </mxCell>
+
+        <mxCell id="art-postgres"
+          value="«artifact»  appfint — PostgreSQL 14 · Acceso: SQLAlchemy ORM + psycopg · Protocolo: TCP 5432/TLS"
+          style="shape=mxgraph.uml.artifact;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#991b1b;fontSize=9;fontStyle=1;align=center;"
+          vertex="1" parent="node-db">
+          <mxGeometry x="15" y="64" width="340" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="db-schema"
+          value="Tablas (4):&#xa;· users — id PK · username · email UK · password_hash (bcrypt) · google_id UK · created_at&#xa;· query_logs — id PK · session_id · instrument · indicator · source · processing_time_ms · user_id FK · is_regeneration · explanation_text · variant · created_at&#xa;· instrument_visits — id PK · user_id FK · instrument · created_at&#xa;· revoked_tokens — jti PK · revoked_at (lista negra JWT, sin FK)"
+          style="text;html=1;fontSize=8;align=left;fillColor=#fee2e2;strokeColor=#fca5a5;rounded=1;spacingLeft=5;spacingTop=4;"
+          vertex="1" parent="node-db">
+          <mxGeometry x="15" y="108" width="340" height="118" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!-- RUTAS DE COMUNICACIÓN                                    -->
+        <!-- ════════════════════════════════════════════════════════ -->
+
+        <!-- Cliente <-> Internet -->
+        <mxCell id="edge-client-internet"
+          value="HTTPS · Puerto 443"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0369a1;strokeWidth=2;fontSize=9;fontStyle=1;endArrow=open;startArrow=open;endFill=0;startFill=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="node-client" target="node-internet">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Internet <-> Servidor -->
+        <mxCell id="edge-internet-server"
+          value="HTTP/HTTPS · Puerto 443/5000&#xa;REST API · JSON · Cookie JWT + X-CSRF-TOKEN"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#0369a1;strokeWidth=2;fontSize=9;fontStyle=1;endArrow=open;startArrow=open;endFill=0;startFill=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="node-internet" target="node-server">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Servidor -> APIs Externas -->
+        <mxCell id="edge-server-apis"
+          value="HTTPS · Puerto 443&#xa;(reintentos ×3 · RNF-09.2)"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#166534;strokeWidth=2;fontSize=9;endArrow=open;startArrow=none;endFill=0;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="node-server" target="node-apis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Servidor <-> BD -->
+        <mxCell id="edge-server-db"
+          value="SQLAlchemy ORM + psycopg · TCP 5432 (TLS)&#xa;INSERT / SELECT · esquema vía Alembic"
+          style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#991b1b;strokeWidth=2;fontSize=9;endArrow=open;startArrow=open;endFill=0;startFill=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;"
+          edge="1" parent="1" source="node-server" target="node-db">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

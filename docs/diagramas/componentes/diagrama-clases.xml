@@ -1,0 +1,154 @@
+¡Exacto! 🎯 Tienes razón. Los estereotipos `<<entity>>`, `<<service>>`, `<<controller>>` **NO son UML estándar en un diagrama de clases**.
+
+Eso es de arquitectura o componentes. Un diagrama de clases UML puro solo lleva:
+- Nombres de clases
+- Atributos y métodos
+- Relaciones (herencia, asociación, dependencia)
+- Solo `<<abstract>>`, `<<interface>>`, `<<exception>>` si es necesario
+
+Voy a hacer la versión **realmente UML conforme**:## ✅ **DIAGRAMA DE CLASES — UML PURO (Sin estereotipos de arquitectura)**
+
+Exacto, tienes razón. Los estereotipos `<<entity>>`, `<<service>>` no son UML estándar en diagramas de clases.
+
+Aquí está la versión **conforme a UML académico puro**:
+
+```mermaid
+classDiagram
+    direction TB
+
+    class User {
+        -id: int
+        -email: string
+        -username: string
+        -password_hash: string
+        -created_at: datetime
+        +register(): bool
+        +authenticate(): bool
+        +get_profile(): dict
+    }
+
+    class QueryLog {
+        -id: int
+        -user_id: int
+        -instrument: string
+        -indicator: string
+        -explanation_text: text
+        -legibility_score: float
+        -created_at: datetime
+        +save(): None
+        +get_history(): list
+    }
+
+    class InstrumentVisit {
+        -id: int
+        -user_id: int
+        -instrument: string
+        -last_visited: datetime
+        +record_visit(): None
+        +get_favorite_instruments(): list
+    }
+
+    class RevokedToken {
+        -jti: string
+        -revoked_at: datetime
+        -exp_at: datetime
+        +is_revoked(): bool
+    }
+
+    class AuthService {
+        +register_user(email, password): User
+        +authenticate_user(email, password): User
+        +logout(token): None
+        +validate_token(token): bool
+    }
+
+    class ExtractorService {
+        +get_indicator(symbol, indicator, days): dict
+        +get_price_series(symbol, days): dict
+        +get_quotes(symbols): dict
+        -validate_inputs(): bool
+    }
+
+    class NLPExplainer {
+        -templates: dict
+        +generate_explanation(data, detail_level): dict
+        +regenerate_explanation(data): dict
+        -fill_template(template, data): string
+    }
+
+    class CoherenceValidator {
+        +validate_coherence(indicator_data, text): tuple
+        -check_rsi_terms(): bool
+        -check_macd_terms(): bool
+        -check_bollinger_terms(): bool
+    }
+
+    class ProfileService {
+        +get_detail_level(user_id, indicator): string
+        +build_learning_profile(user_id): dict
+        +track_learning(user_id, concept): None
+    }
+
+    class WebController {
+        +index(): html
+        +api_instruments(): json
+        +api_quotes(symbols): json
+        +api_query(symbol, indicator): json
+        +history(): html
+        -run_query(symbol, indicator): dict
+    }
+
+    class Cache {
+        -store: dict
+        -ttl: int
+        +get(key): any
+        +set(key, value): None
+        +clear(): None
+    }
+
+    class Exception {
+        #message: string
+    }
+
+    class AuthError {
+    }
+
+    class ExtractionError {
+    }
+
+    %% Relaciones
+    User "1" --> "0..*" QueryLog : generates
+    User "1" --> "0..*" InstrumentVisit : visits
+
+    WebController --> AuthService : uses
+    WebController --> ExtractorService : uses
+    WebController --> NLPExplainer : uses
+    WebController --> ProfileService : uses
+    WebController --> QueryLog : persists
+
+    AuthService --> User : creates
+    ExtractorService --> Cache : uses
+    NLPExplainer --> CoherenceValidator : validates
+    ProfileService --> QueryLog : reads
+    ProfileService --> InstrumentVisit : reads
+
+    Exception <|-- AuthError
+    Exception <|-- ExtractionError
+```
+
+---
+
+## 📐 **QUÉ CAMBIÓ:**
+
+| Antes | Ahora |
+|-------|-------|
+| `<<entity>>` | (ninguno - clase normal) |
+| `<<service>>` | (ninguno - clase normal) |
+| `<<controller>>` | (ninguno - clase normal) |
+| `<<exception>>` | `Exception` como superclase |
+
+**Ahora es UML puro**: Solo clases, atributos, métodos y relaciones estándar (herencia `<|--`, asociación `-->`).
+
+✅ **Archivo:** `DIAGRAMA_CLASES_UML_PURO.md` descargable
+
+¿Así es conforme a UML académico?
