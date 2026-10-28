@@ -1,6 +1,6 @@
 # ADR 0003: niveles adaptativos con ficha declarativa
 
-- Estado: aceptada, a validar con usuarios
+- Estado: aceptada como heurística; sin validación empírica
 - Requerimientos relacionados: RF-05.2, RF-06.2, RF-13.2, RF-14
 
 ## Contexto y problema
@@ -34,7 +34,8 @@ Tres niveles (`basico`, `intermedio`, `avanzado`) definidos por una ficha en `sr
 - Negativas:
   - Interpretar "No entendí esto" como baja comprensión y fijar el umbral en 2 son supuestos sin validar. El retiro de las encuestas (ADR 0007) quita la forma prevista de comprobarlos.
   - Solo baja de nivel; nunca sube.
-- Mejoras posibles: regla para subir de nivel tras N consultas sin regenerar; hacer configurable el umbral.
+- **Decisión sobre estos límites:** se mantiene como una regla heurística y se declara como limitación en el informe. No se agregó una regla para subir de nivel ni se hizo configurable el umbral, porque cualquier valor nuevo tampoco tendría respaldo empírico.
+- Mejoras posibles, si hay validación con usuarios: regla para subir de nivel tras N consultas sin regenerar; umbral configurable (`DETAIL_THRESHOLD` está en `src/profile/service.py`).
 
 ## Verificación
 

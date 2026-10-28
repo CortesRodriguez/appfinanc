@@ -84,10 +84,10 @@ Este es el punto más pedagógico de la Fase 9 y el que la comisión suele pregu
 El Procesador NLP redacta cada explicación en tres pasos (`src/nlp/explainer.py`):
 
 1. **Ficha del nivel** (RF-05.2, RF-13.2). Según el usuario, el indicador pasa a un nivel (`basico`, `intermedio`, `avanzado`) cuya ficha (`src/nlp/levels.py`) define audiencia, vocabulario, términos prohibidos, umbrales y máximo de palabras. La misma ficha alimenta el prompt del LLM y las plantillas.
-2. **Redacción con LLM** (RF-04.1, RF-05.1). Si `USE_LLM=true` y hay `GROQ_API_KEY`, el modelo `qwen/qwen3.8-27b` (vía Groq) redacta el texto. Se recorta al máximo de palabras del nivel y se acepta solo si contiene la etiqueta de riesgo, el valor del indicador y ningún término prohibido del nivel.
+2. **Redacción con LLM** (RF-04.1, RF-05.1). Si `USE_LLM=true` y hay `GROQ_API_KEY`, el modelo `qwen/qwen3.8-27b` (vía Groq) redacta el texto. Se recorta al máximo de palabras del nivel y se acepta solo si contiene la etiqueta de riesgo, el valor del indicador y ningún término prohibido del nivel, y si además pasa el validador de coherencia.
 3. **Plantillas de respaldo**. Si el LLM está desactivado, falla o su texto no pasa la verificación, se usan plantillas en español con tres variantes por indicador y nivel (`src/nlp/templates.py`), que se rellenan con los valores reales y por eso son coherentes por construcción. Las variantes permiten la regeneración (RF-06.2).
 
-Después, el **validador de coherencia** (RF-04.2, `src/nlp/validator.py`) contrasta el texto con el valor y los umbrales del indicador (RSI, %B, MACD, medias móviles). Si discrepan, la respuesta lleva `coherent=false` y la interfaz muestra un aviso; no bloquea el texto.
+Después, el **validador de coherencia** (RF-04.2, `src/nlp/validator.py`) contrasta el texto con el valor y los umbrales del indicador (RSI, %B, MACD, medias móviles). Se aplica a la salida del LLM antes de aceptarla; si falla, se usa una plantilla. La ruta vuelve a validar el texto final y, si discrepa, la respuesta lleva `coherent=false` y la interfaz muestra un aviso.
 
 **FinBERT** (`ProsusAI/finbert`) es un componente opcional (`USE_FINBERT`, desactivado por defecto): solo aporta una etiqueta de sentimiento que la interfaz muestra como insignia. No participa en la redacción.
 
@@ -95,14 +95,14 @@ Después, el **validador de coherencia** (RF-04.2, `src/nlp/validator.py`) contr
 
 | Criterio | Solo plantillas | LLM con plantillas de respaldo (elegido) |
 |---|---|---|
-| Coherencia con el dato | Alta, por construcción | Menor: el LLM puede errar; se mitiga con la verificación mínima, el validador y el respaldo |
+| Coherencia con el dato | Alta, por construcción | Menor: el LLM puede errar; se mitiga con el validador previo a aceptar el texto y el respaldo en plantillas |
 | Fluidez y adaptación al nivel | Limitada a las variantes escritas | Alta: el texto se ajusta a la ficha del nivel |
 | Reproducibilidad | Alta | Menor: mismo prompt, salidas distintas |
 | Costo por consulta | Cero | Cuota del proveedor (Groq, nivel gratuito) |
 | Dependencia de terceros | Ninguna | Groq; si cae, se usan las plantillas sin que el usuario lo note |
-| Alucinaciones | Imposibles | Posibles; la verificación mínima solo exige etiqueta, valor y vocabulario del nivel |
+| Alucinaciones | Imposibles | Posibles; el validador detecta las contradicciones con el dato que sus reglas cubren, no cualquier afirmación falsa |
 
-Se eligió el LLM como generador principal porque permite ajustar el vocabulario y la profundidad al nivel del usuario, que es el aporte central del proyecto, y se conservaron las plantillas como red de seguridad (RNF-09). La verificación actual es **mínima**: comprueba que aparezcan la etiqueta de riesgo y el valor como texto, pero no que el resto de la redacción sea fiel. Endurecerla (exigir `validate_coherence` antes de aceptar la salida del LLM) está registrado como mejora en `docs/adr/0002-llm-con-fallback-y-validacion.md`.
+Se eligió el LLM como generador principal porque permite ajustar el vocabulario y la profundidad al nivel del usuario, que es el aporte central del proyecto, y se conservaron las plantillas como red de seguridad (RNF-09). Antes de aceptar la salida del LLM se exige que cite la etiqueta de riesgo y el valor, respete el vocabulario del nivel y pase `validate_coherence`. El validador solo cubre las reglas que conoce (riesgo, valor y las categorías cualitativas de cada indicador), por lo que una afirmación falsa fuera de esas reglas no se detectaría; ver `docs/adr/0002-llm-con-fallback-y-validacion.md`.
 
 ### Justificación del uso de FinBERT como señal opcional
 

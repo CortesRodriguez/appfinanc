@@ -5,11 +5,11 @@ numerico de un indicador financiero, con el nivel de explicacion del usuario
 (basico / intermedio / avanzado, ver levels.py; plantillas en templates.py).
 
 Diseno: con `use_llm` activo, un LLM (Groq) redacta el texto segun la ficha
-del nivel; se acepta solo si pasa una verificacion minima (etiqueta de riesgo,
-valor y vocabulario del nivel). Si no, o si el LLM falla, se usan las plantillas
-(templates.py), coherentes con el dato por construccion. El resultado se valida
-despues contra el valor real del indicador (RF-04.2, en validator.py), que
-marca la discrepancia pero no bloquea el texto.
+del nivel; se acepta solo si cita la etiqueta de riesgo y el valor, respeta el
+vocabulario del nivel y pasa el validador de coherencia (RF-04.2, validator.py).
+Si no, o si el LLM falla, se usan las plantillas (templates.py), coherentes con
+el dato por construccion. Despues, la ruta vuelve a validar el texto final y
+avisa si discrepa.
 
 FinBERT (RF-04.1) es opcional: solo agrega una etiqueta de sentimiento y no
 participa en la redaccion. Si `transformers`/`torch` no estan instalados o el
@@ -220,6 +220,13 @@ def _finbert_signal(text: str):
         return None
 
 
+def _is_coherent(indicator_data: dict, text: str) -> bool:
+    # Import tardio: validator.py importa RISK_LABELS de este modulo.
+    from .validator import validate_coherence
+
+    return validate_coherence(indicator_data, text)[0]
+
+
 def generate_explanation(
     indicator_data: dict,
     variant: int = 0,
@@ -254,8 +261,10 @@ def generate_explanation(
             from .llm_explainer import generate_explanation_llm
             _name = display_name or indicator_data.get("symbol", "").replace(".SN", "")
             llm_text = generate_explanation_llm(indicator_data, _name, detail_level, llm_api_key, variant=variant)
-            # Verificacion minima: el texto debe contener el risk_label y el valor numerico,
-            # y respetar el vocabulario del nivel (el basico no admite jerga).
+            # Verificacion: el texto debe contener el risk_label y el valor numerico,
+            # respetar el vocabulario del nivel (el basico no admite jerga) y pasar el
+            # validador de coherencia (que detecta, p. ej., "15.0" donde el valor es 5.0 o
+            # "sobrecomprado" con RSI bajo). Si falla, se usan las plantillas.
             # Se verifica DESPUES de recortar: el recorte no debe quitar el riesgo ni el valor.
             _risk_label = RISK_LABELS.get(risk_level, "")
             _val_str = str(indicator_data.get("value", ""))
@@ -265,6 +274,7 @@ def generate_explanation(
                 and _risk_label in llm_text.lower()
                 and _val_str in llm_text
                 and not contains_forbidden_term(detail_level, llm_text)
+                and _is_coherent(indicator_data, llm_text)
             ):
                 readability = fernandez_huerta_score(llm_text)
                 finbert_input = _build_finbert_input(indicator_data) if use_finbert else None

@@ -738,3 +738,30 @@ def test_saving_the_same_experience_does_not_reset_the_count(client, monkeypatch
     client.patch("/api/perfil/experiencia", json={"experience_level": "poco"}, headers=headers)
     levels = client.get("/api/perfil", headers=headers).get_json()["detail_levels"]
     assert levels["rsi"] == "basico"
+
+
+def test_llm_text_contradicting_the_data_falls_back_to_templates(monkeypatch):
+    """El texto cita 'riesgo alto' y contiene '5.0' (dentro de '15.0'), asi que la
+    verificacion minima lo aceptaria; el validador detecta que dice 'sobrecomprado' con RSI bajo."""
+    from src.nlp.explainer import generate_explanation
+    from src.nlp.validator import validate_coherence
+
+    data = {"indicator": "rsi", "value": 5.0, "risk_level": "alto", "signal": "sobrevendido", "symbol": "BCI.SN"}
+    bad = "El RSI de BCI está en 15.0 y marca riesgo alto: está sobrecomprado, conviene vigilar."
+    assert validate_coherence(data, bad)[0] is False
+    monkeypatch.setattr("src.nlp.llm_explainer.generate_explanation_llm", lambda *a, **k: bad)
+
+    result = generate_explanation(data, use_finbert=False, detail_level="intermedio", use_llm=True, llm_api_key="x")
+    assert result["text"] != bad
+    assert validate_coherence(data, result["text"]) == (True, None)
+
+
+def test_coherent_llm_text_is_still_used(monkeypatch):
+    from src.nlp.explainer import generate_explanation
+
+    data = {"indicator": "rsi", "value": 78.5, "risk_level": "alto", "signal": "sobrecomprado", "symbol": "BCI.SN"}
+    good = "El RSI de BCI está en 78.5 (riesgo alto): sobrecomprado, por encima de 70."
+    monkeypatch.setattr("src.nlp.llm_explainer.generate_explanation_llm", lambda *a, **k: good)
+
+    result = generate_explanation(data, use_finbert=False, detail_level="avanzado", use_llm=True, llm_api_key="x")
+    assert result["text"] == good

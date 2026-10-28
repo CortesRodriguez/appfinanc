@@ -1,6 +1,6 @@
 # ADR 0002: explicaciones con LLM, plantillas de respaldo y validación de coherencia
 
-- Estado: aceptada, con mejora pendiente
+- Estado: aceptada
 - Requerimientos relacionados: RF-04.1, RF-04.2, RF-05.1, RF-06.2, RNF-04, RNF-09
 
 ## Contexto y problema
@@ -31,22 +31,23 @@ La explicación debe adaptarse al nivel del usuario y citar el valor real del in
 Se elige B. Flujo en `src/nlp/explainer.py:generate_explanation`:
 
 1. Si `USE_LLM` está activo y hay `GROQ_API_KEY`, el LLM (`qwen/qwen3.8-27b` vía Groq) redacta el texto.
-2. Se recorta al máximo de palabras del nivel y se acepta solo si contiene la etiqueta de riesgo, el valor del indicador (como cadena) y ningún término prohibido del nivel.
+2. Se recorta al máximo de palabras del nivel y se acepta solo si contiene la etiqueta de riesgo, el valor del indicador (como cadena), ningún término prohibido del nivel y **si además pasa `validate_coherence`** (`src/nlp/validator.py`), que contrasta el texto con el valor y los umbrales del indicador.
 3. En cualquier otro caso, o ante una excepción, se usa una plantilla.
-4. Después, `validate_coherence` (`src/nlp/validator.py`) contrasta el texto con el valor y los umbrales. Su resultado se informa (`coherent`, `reason`) pero **no bloquea** el texto.
+4. Las rutas vuelven a validar el texto final y devuelven `coherent` y `reason`; la interfaz muestra un aviso si discrepa. Las plantillas son coherentes por construcción, así que ese aviso solo debería aparecer en casos que el validador no cubre.
 
 ## Consecuencias
 
 - Positivas: fluidez y adaptación al nivel con una red de seguridad.
+- Positivas: un texto del LLM que contradice el dato (por ejemplo, dice "sobrecomprado" con un RSI bajo, o cita "15.0" cuando el valor es 5.0) ya no se muestra: cae a plantilla. Hay un test que lo comprueba y se verificó que falla si se quita el guardarraíl.
 - Negativas, verificadas en el código:
-  - La comprobación del valor es una búsqueda de cadena (`_val_str in llm_text`): un valor `5` pasa si el texto dice "15".
-  - Un texto que cumple la verificación mínima pero contradice el dato solo se marca, no se reemplaza.
+  - El validador solo cubre lo que sus reglas conocen: riesgo, valor citado y las categorías cualitativas de RSI, %B, MACD y medias móviles. Una frase falsa fuera de esas reglas (por ejemplo, una causa inventada) no se detecta.
+  - La comprobación del valor es una búsqueda de cadena (`value_str in texto`): un valor `5.0` sigue pasando si el texto dice "15.0" y no menciona ninguna categoría contradictoria.
   - El `except Exception: pass` oculta los fallos del LLM; no hay conteo de cuántas veces se usa el respaldo.
+  - No se probó contra la API real de Groq: los tests simulan la respuesta del modelo.
 
-## Mejoras pendientes (no implementadas)
+## Mejora pendiente (no implementada)
 
-1. Llamar a `validate_coherence` antes de aceptar la salida del LLM y caer a plantillas si falla. Haría cierta la afirmación "nunca se muestra una explicación incoherente".
-2. Registrar cuántas salidas del LLM caen al respaldo.
+Registrar cuántas salidas del LLM caen al respaldo, para tener un dato en la defensa.
 
 ## Verificación
 
