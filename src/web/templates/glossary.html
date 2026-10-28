@@ -4,7 +4,14 @@
 {% block content %}
 <h1>Glosario de términos financieros</h1>
 
-<input type="search" id="glossary-search" placeholder="Buscar un término…" aria-label="Buscar término">
+<div class="glossary-controls">
+  <input type="search" id="glossary-search" placeholder="Buscar un término…" aria-label="Buscar término">
+  <div class="glossary-filters" role="group" aria-label="Filtrar por categoría">
+    <button class="filter-btn active" data-category="">Todos</button>
+    <button class="filter-btn" data-category="indicador_tecnico">Indicadores técnicos</button>
+    <button class="filter-btn" data-category="concepto_basico">Conceptos básicos</button>
+  </div>
+</div>
 
 <dl id="glossary-list" class="glossary">
   {% for term in terms %}
@@ -20,5 +27,59 @@
 {% block scripts %}
 <script>
   window.APP_ENDPOINTS = { glossarySearch: "{{ url_for('web.api_glossary_search') }}" };
+
+  (function () {
+    let activeCategory = "";
+    let searchTimer = null;
+
+    const searchInput = document.getElementById("glossary-search");
+    const list = document.getElementById("glossary-list");
+    const empty = document.getElementById("glossary-empty");
+    const filterBtns = document.querySelectorAll(".filter-btn");
+
+    function renderTerms(terms) {
+      list.innerHTML = "";
+      if (!terms.length) {
+        empty.classList.remove("hidden");
+        return;
+      }
+      empty.classList.add("hidden");
+      terms.forEach(function (t) {
+        const div = document.createElement("div");
+        div.className = "glossary-item";
+        const dt = document.createElement("dt");
+        dt.textContent = t.term;
+        const dd = document.createElement("dd");
+        dd.textContent = t.definition;
+        div.appendChild(dt);
+        div.appendChild(dd);
+        list.appendChild(div);
+      });
+    }
+
+    function fetchTerms() {
+      const q = encodeURIComponent(searchInput.value.trim());
+      const cat = encodeURIComponent(activeCategory);
+      const url = window.APP_ENDPOINTS.glossarySearch + "?q=" + q + "&category=" + cat;
+      fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(renderTerms)
+        .catch(function () {});
+    }
+
+    searchInput.addEventListener("input", function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(fetchTerms, 200);
+    });
+
+    filterBtns.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        filterBtns.forEach(function (b) { b.classList.remove("active"); });
+        btn.classList.add("active");
+        activeCategory = btn.dataset.category;
+        fetchTerms();
+      });
+    });
+  })();
 </script>
 {% endblock %}

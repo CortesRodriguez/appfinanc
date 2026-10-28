@@ -2,21 +2,6 @@
 {% block title %}Norte — Tu norte en la bolsa chilena{% endblock %}
 
 {% block content %}
-<div id="study-banner" class="study-banner hidden" role="region" aria-label="Invitación a responder la autoevaluación">
-  <div class="study-banner-body">
-    <strong>Ya alcanzaste las 5 consultas — la autoevaluación está lista.</strong>
-    <p>
-      Cuando te registraste aceptaste participar en la evaluación de comprensión de Norte.
-      Es una encuesta breve donde valorarás qué tan bien entendías algunos conceptos antes de usar
-      la app y qué tan bien los entiendes ahora. Tus respuestas se guardan de forma anónima.
-    </p>
-  </div>
-  <div class="study-banner-actions">
-    <a href="/encuesta" id="study-answer" class="btn primary">Responder ahora</a>
-    <button type="button" id="study-postpone" class="btn">Más tarde</button>
-  </div>
-</div>
-
 <div class="dashboard">
   <aside class="sidebar">
     <div class="sidebar-sticky">
@@ -37,11 +22,54 @@
   </aside>
 
   <main class="dashboard-main">
-    <div id="empty-state">Selecciona un instrumento de la lista para ver su tendencia, riesgo y una explicación en simple.</div>
+    <section id="empty-state" class="landing" aria-labelledby="landing-title">
+      <header class="landing-head">
+        <div>
+          <h1 id="landing-title">{% if current_user %}Hola, {{ current_user.username }}{% else %}Bienvenido a Norte{% endif %}</h1>
+          <p class="lead">Elige una acción para ver su tendencia, su riesgo y una explicación en simple.</p>
+        </div>
+        <span class="landing-date" id="landing-date"></span>
+      </header>
+
+      <div class="landing-grid">
+        <section class="card panel" aria-labelledby="movers-up-title">
+          <h2 class="panel-title" id="movers-up-title">Mayores alzas del día</h2>
+          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Var.</span></div>
+          <ul class="mover-list" id="movers-up"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
+        </section>
+        <section class="card panel" aria-labelledby="movers-down-title">
+          <h2 class="panel-title" id="movers-down-title">Mayores bajas del día</h2>
+          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Var.</span></div>
+          <ul class="mover-list" id="movers-down"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
+          <p class="meta panel-note">Variación diaria según la última cotización disponible.</p>
+        </section>
+
+        <section class="card panel" aria-labelledby="news-market-title">
+          <h2 class="panel-title" id="news-market-title">Noticias del mercado</h2>
+          <ul class="news-list" id="news-market"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
+        </section>
+        <section class="card panel" aria-labelledby="news-movers-title">
+          <h2 class="panel-title" id="news-movers-title">Por qué se mueven hoy</h2>
+          <ul class="news-list" id="news-movers"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
+          <p class="meta panel-note">Titulares de prensa; no explican por sí solos el movimiento del precio.</p>
+        </section>
+
+        {% if recent_stocks %}
+        <section class="card panel panel-wide" aria-labelledby="recent-title">
+          <h2 class="panel-title" id="recent-title">Sigue donde quedaste</h2>
+          <div class="chip-row" id="recent-stocks">
+            {% for s in recent_stocks %}
+            <button type="button" class="chip" data-symbol="{{ s.symbol }}">{{ s.name }}</button>
+            {% endfor %}
+          </div>
+        </section>
+        {% endif %}
+      </div>
+    </section>
 
     <div id="instrument-view" class="hidden">
       <header class="instrument-header">
-        <div>
+        <div class="instrument-title">
           <h1 id="view-symbol"></h1>
           <p id="view-sector" class="meta"></p>
         </div>
@@ -51,45 +79,65 @@
         </div>
       </header>
 
-      <div class="period-selector" role="group" aria-label="Rango temporal">
-        <button type="button" class="period-btn" data-days="30">1M</button>
-        <button type="button" class="period-btn" data-days="90">3M</button>
-        <button type="button" class="period-btn active" data-days="180">6M</button>
-        <button type="button" class="period-btn" data-days="365">1A</button>
-      </div>
-
       <section class="card chart-card">
         <div class="chart-card-header">
-          <h2>Tendencia · <span id="chart-period-label">6 meses</span></h2>
-          <label class="interval-select-label">
-            Intervalo:
-            <select id="interval-select" class="interval-select" aria-label="Intervalo de vela">
-              <option value="1d" selected>Diario</option>
-              <option value="1w">Semanal</option>
-              <option value="1mo">Mensual</option>
-              <option value="3mo">Trimestral</option>
-            </select>
-          </label>
-        </div>
-        <div class="indicator-toggles" role="group" aria-label="Indicadores visibles en el gráfico">
-          <span class="toggle-label">Indicadores:</span>
-          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="sma_short"> <span class="dot ma-short"></span> <span id="legend-ma-short">MA corta</span></label>
-          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="sma_long"> <span class="dot ma-long"></span> <span id="legend-ma-long">MA larga</span></label>
-          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="bollinger"> <span class="dot bollinger"></span> Bandas de Bollinger</label>
-          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="rsi"> <span class="dot rsi"></span> RSI</label>
-          <label class="indicator-toggle"><input type="checkbox" data-indicator-toggle="macd" checked> <span class="dot macd"></span> MACD</label>
+          <div class="period-selector" role="group" aria-label="Rango temporal">
+            <button type="button" class="period-btn" data-days="30">1M</button>
+            <button type="button" class="period-btn" data-days="90">3M</button>
+            <button type="button" class="period-btn active" data-days="180">6M</button>
+            <button type="button" class="period-btn" data-days="365">1A</button>
+          </div>
+          <h2 class="visually-hidden">Tendencia · <span id="chart-period-label">6 meses</span></h2>
+          <div class="chart-ctrls">
+
+            <div class="ctrl-wrap" id="ctrl-indicators">
+              <button class="ctrl-btn" title="Indicadores" aria-expanded="false" aria-label="Indicadores">Indicadores <span class="ctrl-chevron">▾</span></button>
+              <div class="ctrl-dropdown" id="dropdown-indicators">
+                <div class="ctrl-dropdown-title">Indicadores</div>
+                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_short"> <span id="legend-ma-short">MA corta</span></label>
+                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_long"> <span id="legend-ma-long">MA larga</span></label>
+                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="bollinger"> Bollinger</label>
+                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="rsi"> RSI</label>
+                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="macd" checked> MACD</label>
+              </div>
+            </div>
+
+            <div class="ctrl-wrap" id="ctrl-interval">
+              <button class="ctrl-btn" id="ctrl-interval-btn" title="Intervalo" aria-expanded="false" aria-label="Intervalo">1D <span class="ctrl-chevron">▾</span></button>
+              <div class="ctrl-dropdown" id="dropdown-interval">
+                <div class="ctrl-dropdown-title">Intervalo</div>
+                <button class="ctrl-radio active" data-interval="1d">Diario</button>
+                <button class="ctrl-radio" data-interval="1w">Semanal</button>
+                <button class="ctrl-radio" data-interval="1mo">Mensual</button>
+                <button class="ctrl-radio" data-interval="3mo">Trimestral</button>
+              </div>
+            </div>
+
+            <div class="ctrl-wrap" id="ctrl-charttype">
+              <button class="ctrl-btn" id="ctrl-charttype-btn" title="Tipo de gráfico" aria-expanded="false" aria-label="Tipo de gráfico">Velas <span class="ctrl-chevron">▾</span></button>
+              <div class="ctrl-dropdown" id="dropdown-charttype">
+                <div class="ctrl-dropdown-title">Tipo de gráfico</div>
+                <button class="ctrl-radio active" data-chart-type="candlestick">Velas</button>
+                <button class="ctrl-radio" data-chart-type="line">Línea</button>
+                <button class="ctrl-radio" data-chart-type="area">Montaña</button>
+              </div>
+            </div>
+
+          </div>
         </div>
         <div id="chart-loading" class="loading hidden"><span class="spinner"></span> Cargando gráfico…</div>
         <div class="chart-container">
           <div id="price-chart" role="img" aria-label="Gráfico de velas de precio"></div>
           <div id="price-legend" class="chart-overlay hidden">
+            <div class="overlay-price-row">
+              <b class="ov-close-big" id="ov-c">—</b>
+              <span id="ov-chg" class="ov-chg">—</span>
+            </div>
             <div class="overlay-line overlay-title"><span id="ov-symbol"></span> · <span id="ov-date">—</span></div>
             <div class="overlay-line overlay-ohlc">
-              <span>O <b id="ov-o">—</b></span>
-              <span>H <b id="ov-h">—</b></span>
-              <span>L <b id="ov-l">—</b></span>
-              <span>C <b id="ov-c">—</b></span>
-              <span id="ov-chg" class="ov-chg">—</span>
+              <span>A <b id="ov-o">—</b></span>
+              <span>M <b id="ov-h">—</b></span>
+              <span>m <b id="ov-l">—</b></span>
             </div>
             <div class="overlay-line overlay-ma hidden" id="ov-ma-line">
               <span class="ov-ma-item hidden" id="ov-ma-short-wrap"><i class="dot ma-short"></i>MA<span id="ov-ma-short-w"></span> <b id="ov-ma-short">—</b></span>
@@ -113,7 +161,6 @@
         <div id="macd-panel" class="sub-chart-panel">
           <div class="sub-chart-header">
             <span class="sub-chart-title">MACD (12, 26, 9)</span>
-            <span class="sub-chart-legend"><i class="dot macd-line"></i>MACD · <i class="dot macd-signal"></i>Señal · <i class="dot macd-hist-pos"></i>/<i class="dot macd-hist-neg"></i>Hist</span>
           </div>
           <div class="chart-container">
             <div id="macd-chart" class="sub-chart"></div>
@@ -130,13 +177,13 @@
       <section class="card summary-card">
         <div class="summary-header">
           <span class="badge-label">RESUMEN EN SIMPLE</span>
-          <span class="ai-tag">IA en vivo</span>
         </div>
         <div id="summary-loading" class="loading hidden"><span class="spinner"></span> Generando resumen…</div>
         <p id="summary-text"></p>
       </section>
 
       <section class="indicator-grid" id="indicator-grid"></section>
+      <section class="card explain-panel hidden" id="explain-panel" tabindex="-1" role="region" aria-label="Explicación en simple" aria-live="polite"></section>
       <div id="indicators-loading" class="loading hidden"><span class="spinner"></span> Calculando indicadores…</div>
       <div id="indicators-error" class="error hidden" role="alert"></div>
     </div>
@@ -148,16 +195,18 @@
 <script>
   window.APP_ENDPOINTS = {
     quotes: "{{ url_for('web.api_quotes') }}",
+    news: "{{ url_for('web.api_news') }}",
+    sparkline: "{{ url_for('web.api_sparkline') }}",
     chart: "{{ url_for('web.api_chart') }}",
     lookup: "{{ url_for('web.api_lookup') }}",
     query: "{{ url_for('web.api_query') }}",
     indicatorValue: "{{ url_for('web.api_indicator_value') }}",
     regenerate: "{{ url_for('web.api_regenerate') }}",
     logVisit: "{{ url_for('web.api_log_visit') }}",
-    studyConsent: "{{ url_for('web.api_evaluation_consent') }}"
+    profile: "{{ url_for('profile.profile_page') }}"
   };
   window.APP_INDICATORS = [
-    {"key": "medias_moviles", "title": "Tendencia", "sub": "MA corta vs MA larga"},
+    {"key": "medias_moviles", "title": "Medias móviles", "sub": "MA corta vs MA larga"},
     {"key": "rsi", "title": "RSI", "sub": "fuerza relativa · 0–100"},
     {"key": "macd", "title": "MACD", "sub": "histograma · alcista/bajista"},
     {"key": "bandas_bollinger", "title": "Bandas de Bollinger", "sub": "%B · rango habitual del precio"}

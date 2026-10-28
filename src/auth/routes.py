@@ -1,6 +1,6 @@
 """Rutas de autenticacion: registro, login, logout (RF-16, RF-17, CU-11, CU-12)."""
 
-from flask import Blueprint, current_app, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
 from flask_jwt_extended import (
     create_access_token,
     get_jwt,
@@ -11,10 +11,10 @@ from flask_jwt_extended import (
     verify_jwt_in_request,
 )
 
-from src.extensions import db
+from src.extensions import db, oauth
 
 from .models import RevokedToken, User
-from .service import AuthError, authenticate_user, register_user
+from .service import AuthError, authenticate_user, login_or_register_google_user, register_user
 
 bp = Blueprint("auth", __name__)
 
@@ -33,15 +33,10 @@ def login_page():
 def api_register():
     payload = request.get_json(silent=True) or {}
 
-    # RF-16 mejorado: registro simplificado. Solo email + password + confirmacion.
-    # El username es opcional (auto-derivado del prefijo del email en el service).
+    # RF-11.1: nombre de usuario, correo y contrasena (con confirmacion) son obligatorios.
     password = payload.get("password", "")
-    password_confirm = payload.get("password_confirm")
-    if password_confirm is not None and password_confirm != password:
+    if payload.get("password_confirm") != password:
         return jsonify({"error": "Las contraseñas no coinciden."}), 400
-
-    acepta_raw = payload.get("acepta_evaluacion")
-    acepta_evaluacion = bool(acepta_raw) if isinstance(acepta_raw, bool) else None
 
     try:
         user = register_user(
@@ -49,16 +44,42 @@ def api_register():
             email=payload.get("email", ""),
             password=password,
             min_password_length=current_app.config["PASSWORD_MIN_LENGTH"],
-            acepta_evaluacion=acepta_evaluacion,
+            max_password_length=current_app.config["PASSWORD_MAX_LENGTH"],
+            experience_level=payload.get("experience_level"),
         )
     except AuthError as exc:
-        return jsonify({"error": str(exc)}), 409
+        return jsonify({"error": str(exc)}), exc.status
 
-    # CU-11: el registro deja al usuario autenticado, sin pedirle iniciar sesion aparte
+    # CU-24: el registro deja al usuario autenticado, sin pedirle iniciar sesion aparte
     token = create_access_token(identity=str(user.id))
     response = jsonify({"username": user.username, "email": user.email})
     set_access_cookies(response, token)
     return response, 201
+
+
+@bp.route("/auth/google/login")
+def google_login():
+    if not current_app.config.get("GOOGLE_CLIENT_ID"):
+        return jsonify({"error": "Login con Google no está configurado."}), 404
+    return oauth.google.authorize_redirect(url_for("auth.google_callback", _external=True))
+
+
+@bp.route("/auth/google/callback")
+def google_callback():
+    token = oauth.google.authorize_access_token()
+    userinfo = token["userinfo"]
+
+    try:
+        user = login_or_register_google_user(
+            google_id=userinfo["sub"], email=userinfo.get("email", ""), name=userinfo.get("name", "")
+        )
+    except AuthError as exc:
+        return redirect(url_for("auth.login_page", oauth_error=str(exc)))
+
+    jwt_token = create_access_token(identity=str(user.id))
+    response = redirect(url_for("web.index"))
+    set_access_cookies(response, jwt_token)
+    return response
 
 
 @bp.route("/api/auth/login", methods=["POST"])
@@ -66,9 +87,14 @@ def api_login():
     payload = request.get_json(silent=True) or {}
 
     try:
-        user = authenticate_user(payload.get("email", ""), payload.get("password", ""))
+        user = authenticate_user(
+            payload.get("email", ""),
+            payload.get("password", ""),
+            max_attempts=current_app.config["LOGIN_MAX_ATTEMPTS"],
+            lock_minutes=current_app.config["LOGIN_LOCK_MINUTES"],
+        )
     except AuthError as exc:
-        return jsonify({"error": str(exc)}), 401
+        return jsonify({"error": str(exc)}), exc.status
 
     token = create_access_token(identity=str(user.id))
     response = jsonify({"username": user.username, "email": user.email})

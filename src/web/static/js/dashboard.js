@@ -58,15 +58,21 @@
   const indicatorsLoading = document.getElementById("indicators-loading");
   const indicatorsError = document.getElementById("indicators-error");
   const indicatorGrid = document.getElementById("indicator-grid");
+  const explainPanel = document.getElementById("explain-panel");
+  const LEVEL_NAMES = { basico: "Básico", intermedio: "Intermedio", avanzado: "Avanzado" };
+  let activeKey = null; // indicador cuya explicacion esta abierta en el panel
 
   const periodButtons = document.querySelectorAll(".period-btn");
   const periodLabelEl = document.getElementById("chart-period-label");
   const PERIOD_LABELS = { 30: "1 mes", 90: "3 meses", 180: "6 meses", 365: "1 año" };
+  const INTERVAL_LABELS = { "1d": "1D", "1w": "1S", "1mo": "1M", "3mo": "3M" };
+  const TYPE_LABELS = { candlestick: "Velas", line: "Línea", area: "Montaña" };
 
   let catalog = [];
   let current = null; // {symbol, name, sector, type, price, daily_change_pct}
   let selectedDays = 180;
   let selectedInterval = "1d";
+  let selectedChartType = "candlestick";
   const cardState = {}; // indicator key -> {variant, days}
   // Estado de la sidebar: solo orden. Chips de ganadoras/perdedoras se
   // sacaron por decision de diseno — la usuaria queria maxima densidad y
@@ -160,10 +166,202 @@
       const response = await fetch(window.APP_ENDPOINTS.quotes);
       catalog = await response.json();
       applySidebarPipeline();
+      renderLanding();
     } catch (err) {
       listEl.innerHTML = "<li class='meta'>No fue posible cargar la lista de instrumentos.</li>";
+      renderLanding("No fue posible cargar las cotizaciones.");
     }
   }
+
+  // ---------- Portada (sin acción seleccionada) ----------
+  // Todo se arma con createElement/textContent: los titulares vienen de
+  // medios externos y nunca se insertan como HTML.
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function fillMessage(listEl, msg) {
+    listEl.innerHTML = "";
+    listEl.appendChild(el("li", "meta", msg));
+  }
+
+  function timeAgo(iso) {
+    const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (!Number.isFinite(minutes)) return "";
+    if (minutes < 60) return `hace ${Math.max(1, minutes)} min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `hace ${hours} h`;
+    const days = Math.round(hours / 24);
+    return days === 1 ? "hace 1 día" : `hace ${days} días`;
+  }
+
+  function topMovers() {
+    const sorted = catalog
+      .filter((i) => typeof i.daily_change_pct === "number")
+      .sort((a, b) => b.daily_change_pct - a.daily_change_pct);
+    return {
+      up: sorted.filter((i) => i.daily_change_pct > 0).slice(0, 3),
+      down: sorted.filter((i) => i.daily_change_pct < 0).reverse().slice(0, 3),
+    };
+  }
+
+  function sparklineSvg(closes, cls) {
+    const w = 84, h = 26;
+    const min = Math.min(...closes), max = Math.max(...closes);
+    const span = max - min || 1;
+    const points = closes
+      .map((v, i) => `${((i / (closes.length - 1)) * w).toFixed(1)},${(h - 2 - ((v - min) / span) * (h - 4)).toFixed(1)}`)
+      .join(" ");
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.setAttribute("class", `sparkline ${cls}`);
+    svg.setAttribute("aria-hidden", "true");
+    const line = document.createElementNS(ns, "polyline");
+    line.setAttribute("points", points);
+    svg.appendChild(line);
+    return svg;
+  }
+
+  async function loadSparkline(symbol, slot) {
+    try {
+      const response = await fetch(`${window.APP_ENDPOINTS.sparkline}?symbol=${encodeURIComponent(symbol)}`);
+      if (!response.ok) return;
+      const { closes } = await response.json();
+      if (!closes || closes.length < 2) return;
+      const trend = closes[closes.length - 1] >= closes[0] ? "up" : "down";
+      slot.replaceChildren(sparklineSvg(closes, trend));
+      slot.title = "Últimos 30 días";
+    } catch (err) {
+      // Sin mini-gráfico: la fila sigue funcionando.
+    }
+  }
+
+  function renderMoverList(listEl, rows) {
+    if (!rows.length) {
+      fillMessage(listEl, "Sin datos de variación hoy.");
+      return;
+    }
+    listEl.innerHTML = "";
+    rows.forEach((inst) => {
+      const btn = el("button", "mover-row");
+      btn.type = "button";
+      btn.dataset.symbol = inst.symbol;
+      const name = el("span", "mover-name");
+      name.append(el("strong", "", inst.name), el("small", "tickr", inst.symbol.replace(".SN", "")));
+      const spark = el("span", "mover-spark");
+      btn.append(
+        name,
+        spark,
+        el("span", "mover-price", fmtPrice(inst.price)),
+        el("span", `change ${changeClass(inst.daily_change_pct)}`, fmtChange(inst.daily_change_pct)),
+      );
+      const li = el("li");
+      li.appendChild(btn);
+      listEl.appendChild(li);
+      loadSparkline(inst.symbol, spark);
+    });
+  }
+
+  function newsItem(article) {
+    const li = el("li", "news-item");
+    const link = el("a", "news-title", article.title);
+    link.href = article.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    li.append(link, el("span", "news-meta", [article.source, timeAgo(article.published)].filter(Boolean).join(" · ")));
+    return li;
+  }
+
+  async function fetchNews(symbol) {
+    const url = symbol
+      ? `${window.APP_ENDPOINTS.news}?symbol=${encodeURIComponent(symbol)}`
+      : window.APP_ENDPOINTS.news;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("news");
+    return (await response.json()).items || [];
+  }
+
+  async function renderMarketNews() {
+    const listEl = document.getElementById("news-market");
+    if (!listEl) return;
+    try {
+      const items = (await fetchNews()).slice(0, 4);
+      if (!items.length) return fillMessage(listEl, "Sin noticias recientes del mercado.");
+      listEl.innerHTML = "";
+      items.forEach((a) => listEl.appendChild(newsItem(a)));
+    } catch (err) {
+      fillMessage(listEl, "No fue posible cargar las noticias.");
+    }
+  }
+
+  async function renderMoverNews(movers) {
+    const listEl = document.getElementById("news-movers");
+    if (!listEl) return;
+    const insts = [...movers.up, ...movers.down];
+    if (!insts.length) return fillMessage(listEl, "Sin movimientos para mostrar hoy.");
+
+    const results = await Promise.all(insts.map((inst) => fetchNews(inst.symbol).catch(() => null)));
+    if (results.every((r) => r === null)) return fillMessage(listEl, "No fue posible cargar las noticias.");
+
+    listEl.innerHTML = "";
+    insts.forEach((inst, idx) => {
+      const li = el("li", "news-item mover-news");
+      const head = el("button", "mover-news-head");
+      head.type = "button";
+      head.dataset.symbol = inst.symbol;
+      const arrow = inst.daily_change_pct > 0 ? "▲" : "▼";
+      head.append(
+        el("strong", "", inst.name),
+        el("span", `change ${changeClass(inst.daily_change_pct)}`, `${arrow} ${fmtChange(inst.daily_change_pct)}`),
+      );
+      li.appendChild(head);
+      const article = (results[idx] || [])[0];
+      if (article) {
+        const inner = newsItem(article);
+        li.append(...inner.childNodes);
+      } else {
+        li.appendChild(el("span", "news-meta", "Sin noticias recientes."));
+      }
+      listEl.appendChild(li);
+    });
+  }
+
+  function renderLanding(errorMsg) {
+    const upEl = document.getElementById("movers-up");
+    const downEl = document.getElementById("movers-down");
+    if (!upEl || !downEl) return;
+    if (errorMsg) {
+      fillMessage(upEl, errorMsg);
+      fillMessage(downEl, errorMsg);
+      renderMoverNews({ up: [], down: [] });
+      return;
+    }
+    const movers = topMovers();
+    renderMoverList(upEl, movers.up);
+    renderMoverList(downEl, movers.down);
+    renderMoverNews(movers);
+  }
+
+  const landingDate = document.getElementById("landing-date");
+  if (landingDate) {
+    const today = new Date().toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" });
+    landingDate.textContent = today.charAt(0).toUpperCase() + today.slice(1);
+  }
+  renderMarketNews();
+
+  // Clic en una fila de alzas/bajas o en un chip de "Sigue donde quedaste".
+  emptyState.addEventListener("click", (event) => {
+    const target = event.target.closest("[data-symbol]");
+    if (!target) return;
+    const symbol = target.dataset.symbol;
+    const inst = catalog.find((i) => i.symbol === symbol);
+    if (inst) selectInstrument(inst);
+    else lookupSymbol(symbol);
+  });
 
   searchInput.addEventListener("input", () => {
     lookupHint.classList.add("hidden");
@@ -230,7 +428,7 @@
         background: { type: "solid", color: "#131a24" },
         textColor: "#e6edf3",
         fontSize: 12,
-        fontFamily: "Inter, -apple-system, sans-serif",
+        fontFamily: "IBM Plex Sans, -apple-system, sans-serif",
         attributionLogo: false, // apaga la marca TradingView del canvas
       },
       grid: {
@@ -242,17 +440,11 @@
       // series alineadas verticalmente pixel a pixel.
       rightPriceScale: { borderColor: "#232c38", minimumWidth: PRICE_SCALE_MIN_WIDTH },
       timeScale: { borderColor: "#232c38", timeVisible: false, secondsVisible: false },
-      crosshair: { mode: 1 },
+      crosshair: { mode: 1, horzLine: { labelBackgroundColor: "#374151" } },
       localization: { locale: "es-CL" },
     });
 
-    candleSeries = chartInstance.addCandlestickSeries({
-      upColor: "#26a69a",
-      downColor: "#ef5350",
-      borderVisible: false,
-      wickUpColor: "#26a69a",
-      wickDownColor: "#ef5350",
-    });
+    createPriceSeries(selectedChartType);
 
     // MA "corta" (por defecto 50): linea fina y punteada, sub-dominante —
     // el ruido de la MA corta debe estorbar poco. TradingView usa el mismo
@@ -312,13 +504,68 @@
     registerTimeSync(chartInstance);
   }
 
+  const CHART_TYPE_ICONS = {
+    candlestick: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><line x1="3.5" y1="1.5" x2="3.5" y2="13.5"/><rect x="1.5" y="4.5" width="4" height="5"/><line x1="7.5" y1="2.5" x2="7.5" y2="12.5"/><rect x="5.5" y="6" width="4" height="4.5"/><line x1="11.5" y1="3" x2="11.5" y2="12"/><rect x="9.5" y="5" width="4" height="3.5"/></svg>',
+    line: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,12 4.5,6.5 8,9.5 11.5,4 14,6"/></svg>',
+    area: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,11 4.5,6 8,8.5 11.5,3.5 14,5.5"/><path d="M1,11 L4.5,6 L8,8.5 L11.5,3.5 L14,5.5 L14,14 L1,14 Z" fill="currentColor" opacity="0.2" stroke="none"/></svg>',
+  };
+
+  function createPriceSeries(type) {
+    if (candleSeries) chartInstance.removeSeries(candleSeries);
+
+    const iconBtn = document.getElementById("ctrl-charttype-btn");
+    if (iconBtn) iconBtn.innerHTML = `${TYPE_LABELS[type] || "Velas"} <span class="ctrl-chevron">▾</span>`;
+
+    if (type === "line") {
+      candleSeries = chartInstance.addLineSeries({
+        color: "#26a69a",
+        lineWidth: 2,
+        priceLineVisible: true,
+        priceLineStyle: 2,
+        priceLineColor: "#26a69a",
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        crosshairMarkerBorderColor: "#26a69a",
+        crosshairMarkerBackgroundColor: "#26a69a",
+      });
+    } else if (type === "area") {
+      candleSeries = chartInstance.addAreaSeries({
+        lineColor: "#26a69a",
+        topColor: "rgba(38,166,154,0.28)",
+        bottomColor: "rgba(38,166,154,0.02)",
+        lineWidth: 2,
+        priceLineVisible: true,
+        priceLineStyle: 2,
+        priceLineColor: "#26a69a",
+        lastValueVisible: true,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+        crosshairMarkerBorderColor: "#26a69a",
+        crosshairMarkerBackgroundColor: "#26a69a",
+      });
+    } else {
+      candleSeries = chartInstance.addCandlestickSeries({
+        upColor: "#26a69a",
+        downColor: "#ef5350",
+        borderVisible: false,
+        wickUpColor: "#26a69a",
+        wickDownColor: "#ef5350",
+        priceLineVisible: true,
+        priceLineStyle: 2,
+        priceLineColor: "#26a69a",
+        lastValueVisible: true,
+      });
+    }
+  }
+
   // Config comun de subgraficos: mismos margenes, mismo look. Ancho minimo
   // del eje de precio alineado con el chart principal para que las tres
   // "panes" queden con el borde derecho perfectamente en columna, como TV.
   const PRICE_SCALE_MIN_WIDTH = 68;
   const SUB_CHART_OPTIONS = {
     autoSize: true,
-    layout: { background: { type: "solid", color: "#131a24" }, textColor: "#e6edf3", fontSize: 11, fontFamily: "Inter, -apple-system, sans-serif", attributionLogo: false },
+    layout: { background: { type: "solid", color: "#131a24" }, textColor: "#e6edf3", fontSize: 11, fontFamily: "IBM Plex Sans, -apple-system, sans-serif", attributionLogo: false },
     grid: {
       vertLines: { color: "rgba(139, 152, 165, 0.06)" },
       horzLines: { color: "rgba(139, 152, 165, 0.06)" },
@@ -493,6 +740,8 @@
   // valores mas recientes (comportamiento por defecto de TV).
   // ------------------------------------------------------------------
   const crosshairRegistry = []; // [{ chart, id }]
+  let _activePriceLineColor = "#26a69a"; // color actual de la línea estática de precio (evita applyOptions redundantes)
+  let _crosshairLabelBg = "#374151";     // color actual de la etiqueta del crosshair en el eje Y
 
   function registerCrosshair(chart, id) {
     crosshairRegistry.push({ chart, id });
@@ -631,6 +880,45 @@
 
     const idx = indexOfTime(t);
     updateAllLegends(idx);
+
+    // Actualiza colores según la vela bajo el cursor (solo desde el chart principal).
+    if (sourceId === "main" && candleSeries && chartInstance && lastChartSeries) {
+      let candleColor;   // color de la vela bajo el cursor (o gris si no hay vela)
+      let restoreColor;  // color de la última vela (para restaurar al salir)
+
+      const n = lastChartSeries.dates.length - 1;
+      const lastO = lastChartSeries.open?.[n];
+      const lastC = lastChartSeries.close?.[n];
+      restoreColor = (lastO != null && lastC != null) ? (lastC >= lastO ? "#26a69a" : "#ef5350") : "#26a69a";
+
+      if (!t) {
+        // Cursor fuera del chart: vuelve al color de la última vela.
+        candleColor = restoreColor;
+      } else {
+        const barIdx = lastChartSeries.dates.indexOf(t);
+        if (barIdx >= 0) {
+          const o = lastChartSeries.open?.[barIdx];
+          const c = lastChartSeries.close?.[barIdx];
+          candleColor = (o != null && c != null) ? (c >= o ? "#26a69a" : "#ef5350") : "#64748b";
+        } else {
+          candleColor = "#64748b"; // entre velas: gris
+        }
+      }
+
+      // 1) Línea estática de último precio: refleja la vela bajo el cursor.
+      if (candleColor !== _activePriceLineColor) {
+        _activePriceLineColor = candleColor;
+        candleSeries.applyOptions({ priceLineColor: candleColor });
+      }
+
+      // 2) Etiqueta del crosshair en el eje Y: gris en espacio vacío,
+      //    color de vela cuando el cursor cruza una barra concreta.
+      const labelBg = (t && lastChartSeries.dates.indexOf(t) >= 0) ? candleColor : "#374151";
+      if (labelBg !== _crosshairLabelBg) {
+        _crosshairLabelBg = labelBg;
+        chartInstance.applyOptions({ crosshair: { horzLine: { labelBackgroundColor: labelBg } } });
+      }
+    }
   }
 
   // ------------------------------------------------------------------
@@ -735,7 +1023,23 @@
       .map((d, i) => (series.sma_long[i] == null ? null : { time: d, value: series.sma_long[i] }))
       .filter(Boolean);
 
-    candleSeries.setData(candles);
+    if (selectedChartType === "line" || selectedChartType === "area") {
+      const closeLine = dates
+        .map((d, i) => (series.close[i] != null ? { time: d, value: series.close[i] } : null))
+        .filter(Boolean);
+      candleSeries.setData(closeLine);
+    } else {
+      candleSeries.setData(candles);
+    }
+
+    // Línea de precio actual: color según dirección de la última vela (cierre vs apertura).
+    const _lastCandle = candles[candles.length - 1];
+    const _priceLineColor = _lastCandle
+      ? (_lastCandle.close >= _lastCandle.open ? "#26a69a" : "#ef5350")
+      : "#26a69a";
+    _activePriceLineColor = _priceLineColor;
+    candleSeries.applyOptions({ priceLineColor: _priceLineColor, priceLineStyle: 2 });
+
     smaShortSeries.setData(smaShort);
     smaLongSeries.setData(smaLong);
 
@@ -796,6 +1100,22 @@
     }
   }
 
+  // Badge de sentimiento FinBERT (RF-04.1): aparece bajo la explicación
+  // cuando el modelo está activo y devuelve una señal. Si finbert_signal es
+  // null (modelo no disponible o USE_FINBERT=false), no se renderiza nada.
+  function renderFinbertBadge(signal) {
+    if (!signal) return "";
+    const map = {
+      positive: ["Positivo", "#22c55e"],
+      negative: ["Negativo", "#ef4444"],
+      neutral:  ["Neutral",  "#94a3b8"],
+    };
+    const [label, color] = map[signal.label] || ["Desconocido", "#94a3b8"];
+    const pct = Math.round(signal.score * 100);
+    const tooltip = "FinBERT clasifica si la señal del indicador tiene connotación positiva, negativa o neutral según análisis de texto financiero especializado (RF-04.1).";
+    return `<span class="finbert-badge" title="${tooltip}" style="background:${color}20;color:${color};border:1px solid ${color}40;border-radius:4px;padding:2px 8px;font-size:0.72rem;margin-top:5px;display:inline-block;letter-spacing:0.02em;cursor:help;">Análisis NLP: ${label} (${pct}%)</span>`;
+  }
+
   // Badge principal: la senal oficial de RF-04.2 por indicador.
   //   RSI  y Bollinger  -> sobrecomprado / sobrevendido / neutral
   //   MACD y Medias mov -> alcista / bajista
@@ -804,7 +1124,8 @@
     if (indicatorKey === "medias_moviles" || indicatorKey === "macd") {
       const trend = data.trend === "bajista" ? "bajista" : "alcista";
       const arrow = trend === "bajista" ? "▼" : "▲";
-      return { cls: trend, text: `${arrow} ${trend}` };
+      const label = trend === "bajista" ? "en baja" : "en alza";
+      return { cls: trend, text: `${arrow} ${label}` };
     }
     if (indicatorKey === "rsi") {
       const sig = data.signal || "neutral"; // sobrecomprado | sobrevendido | neutral
@@ -814,7 +1135,7 @@
     if (indicatorKey === "bandas_bollinger") {
       // Backend puede devolver: sobrecomprado / sobrevendido / cercano_al_extremo / normal
       const sig = data.signal || "normal";
-      const label = sig === "cercano_al_extremo" ? "cerca del extremo" : sig;
+      const label = sig === "cercano_al_extremo" ? "cerca extremo" : sig;
       const arrow = sig === "sobrecomprado" ? "▲" : sig === "sobrevendido" ? "▼" : "●";
       return { cls: sig, text: `${arrow} ${label}` };
     }
@@ -829,7 +1150,7 @@
   }
 
   function formatIndicatorValue(indicatorKey, data) {
-    if (indicatorKey === "medias_moviles") return data.trend === "bajista" ? "Bajista" : "Alcista";
+    if (indicatorKey === "medias_moviles") return data.trend === "bajista" ? "En baja" : "En alza";
     if (indicatorKey === "rsi") return `${data.value}`;
     if (indicatorKey === "macd") return `${data.value}`;
     if (indicatorKey === "bandas_bollinger") return `%B ${data.value}`;
@@ -848,36 +1169,24 @@
     const signal = signalBadge(meta.key, data);
     const risk = riskBadge(data);
 
-    // Dos modos de renderizado:
-    //   - explained=false: valor + badge + boton "Ver explicacion en simple".
-    //     Es el estado inicial tras loadIndicators (fetch barato, sin log).
-    //   - explained=true: se agrega el parrafo de explicacion + boton de
-    //     regeneracion. La trazabilidad de RF-02.2 (fuente, fecha, indicador
-    //     literal) vive en /history, no en la card — evita ruido visual.
-    const explained = Boolean(data.explanation);
-
+    // La card solo muestra valor + badges + boton; la explicacion se muestra
+    // en el panel de debajo (ver renderPanel). La trazabilidad de RF-02.2
+    // (fuente, fecha, indicador literal) vive en el Historial del perfil.
     card.innerHTML = `
       <div class="indicator-card-header">
         <span class="indicator-title">${meta.title}</span>
-        <div class="badge-stack">
+        <div class="badge-row">
           <span class="badge ${signal.cls}">${signal.text}</span>
-          ${risk ? `<span class="badge badge-small ${risk.cls}">${risk.text}</span>` : ""}
+          ${risk ? `<span class="badge badge-risk ${risk.cls}">${risk.text}</span>` : ""}
         </div>
       </div>
       <div class="indicator-value">${formatIndicatorValue(meta.key, data)}</div>
       <div class="indicator-sub">${meta.sub}</div>
-      ${explained ? `<p class="indicator-text">${data.explanation}</p>` : ""}
-      ${explained && data.coherent === false ? '<div class="warn">Marcado para revisión de coherencia.</div>' : ""}
-      ${explained
-        ? `<button type="button" class="link-btn regen-btn">No entendí esto</button>`
-        : `<button type="button" class="explain-cta">Ver explicación en simple</button>`}
+      <button type="button" class="explain-cta" aria-controls="explain-panel" aria-expanded="false"></button>
     `;
 
-    if (explained) {
-      card.querySelector(".regen-btn").addEventListener("click", () => regenerateCard(meta));
-    } else {
-      card.querySelector(".explain-cta").addEventListener("click", () => explainCard(meta));
-    }
+    card.querySelector(".explain-cta").addEventListener("click", () => selectIndicator(meta));
+    updateCardButtons();
   }
 
 
@@ -893,7 +1202,7 @@
   }
 
   // Fetch completo: golpea /api/query (o /api/regenerate si variant>0),
-  // corre FinBERT, valida coherencia y persiste `QueryLog` + `CoherenceCheck`.
+  // corre FinBERT, valida coherencia y persiste un `QueryLog`.
   // Cada llamada a esta funcion = una fila de traza en RF-02.2.
   async function fetchExplanation(symbol, indicatorKey, days, variant) {
     const endpoint = variant > 0 ? window.APP_ENDPOINTS.regenerate : window.APP_ENDPOINTS.query;
@@ -908,35 +1217,199 @@
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No fue posible obtener el indicador.");
-
-    // Instrumento 1: el backend nos avisa cuando esta cuenta ya cumple umbral
-    // y todavía no decidió participar. El banner se muestra una sola vez por
-    // sesión de dashboard (el propio banner se auto-oculta al decidir).
-    if (data.invitacion_estudio === "mostrar" && typeof window.showStudyBanner === "function") {
-      window.showStudyBanner();
-    }
     return data;
   }
 
-  // Handler del boton "Ver explicacion en simple": muestra un spinner en la
-  // card, pide la explicacion via /api/query (unica llamada que escribe log),
-  // y re-renderiza la card con explicacion + panel de trazabilidad.
-  async function explainCard(meta) {
+  // ---- Panel de explicacion (debajo de las cards) ----
+  // Las cards solo muestran valor + badges + boton. La explicacion, la escala
+  // visual y las acciones viven en un unico panel ancho que cambia segun el
+  // indicador activo (`activeKey`). Pedir la explicacion de un indicador ya
+  // visto reabre el panel sin escribir otra fila en `query_logs`.
+  function ctaLabel(key) {
+    if (activeKey === key) return "Viendo explicación";
+    const known = lastIndicatorData[key];
+    return known && known.explanation ? "Ver explicación" : "Ver explicación en simple";
+  }
+
+  function updateCardButtons() {
+    document.querySelectorAll(".indicator-card").forEach((card) => {
+      const key = card.dataset.indicator;
+      const on = key === activeKey;
+      card.classList.toggle("is-active", on);
+      const btn = card.querySelector(".explain-cta");
+      if (!btn) return;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+      btn.textContent = ctaLabel(key);
+    });
+  }
+
+  // Escala visual del valor (solo RSI y %B, que tienen un rango con zonas).
+  // En el nivel basico no se muestran numeros de umbral ni jerga.
+  function scaleSpec(key, data, level) {
+    const v = Number(data.value);
+    if (!Number.isFinite(v)) return null;
+    const plain = level === "basico";
+    const plainZones = ["Zona baja", "Zona normal", "Zona alta"];
+    if (key === "rsi") {
+      return {
+        label: "RSI", v, min: 0, max: 100, lo: 30, hi: 70,
+        ticks: plain ? [] : [0, 30, 70, 100],
+        zones: plain ? plainZones : ["Sobreventa", "Neutral", "Sobrecompra"],
+      };
+    }
+    if (key === "bandas_bollinger") {
+      return {
+        label: "%B", v, min: -0.25, max: 1.25, lo: 0, hi: 1,
+        ticks: plain ? [] : [0, 1],
+        zones: plain ? plainZones : ["Bajo la banda", "Dentro de las bandas", "Sobre la banda"],
+      };
+    }
+    return null;
+  }
+
+  function renderScale(key, data, level) {
+    const spec = scaleSpec(key, data, level);
+    if (!spec) return "";
+    const span = spec.max - spec.min;
+    const pct = (x) => Math.min(100, Math.max(0, ((x - spec.min) / span) * 100));
+    const loP = pct(spec.lo);
+    const hiP = pct(spec.hi);
+    const zone = spec.v < spec.lo ? 0 : spec.v > spec.hi ? 2 : 1;
+    const ticks = spec.ticks
+      .map((t) => `<span style="left:${pct(t).toFixed(2)}%">${t}</span>`)
+      .join("");
+    const legend = spec.zones
+      .map((z, i) => `<span class="z z${i}${i === zone ? " current" : ""}">${z}</span>`)
+      .join("");
+    return `
+      <div class="scale" role="img" aria-label="${spec.label} en ${spec.v}: ${spec.zones[zone]}">
+        <div class="scale-track">
+          <span class="scale-zone low" style="width:${loP.toFixed(2)}%"></span>
+          <span class="scale-zone mid" style="width:${(hiP - loP).toFixed(2)}%"></span>
+          <span class="scale-zone high" style="width:${(100 - hiP).toFixed(2)}%"></span>
+          <span class="scale-marker" style="left:${pct(spec.v).toFixed(2)}%" title="${spec.label} ${spec.v}"></span>
+        </div>
+        ${ticks ? `<div class="scale-ticks">${ticks}</div>` : ""}
+        <div class="scale-legend">${legend}</div>
+      </div>`;
+  }
+
+  function revealPanel() {
+    explainPanel.classList.remove("hidden");
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      explainPanel.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
+    });
+  }
+
+  function panelTitle(meta) {
+    const name = (current && (current.name || current.symbol.replace(".SN", ""))) || "";
+    return `${meta.title} · ${name}`;
+  }
+
+  function showPanelLoading(meta) {
+    explainPanel.classList.remove("is-loading");
+    explainPanel.innerHTML = `
+      <div class="explain-panel-head">
+        <div class="explain-panel-title">
+          <span class="badge-label">EXPLICACIÓN EN SIMPLE</span>
+          <h3 class="explain-panel-name"></h3>
+        </div>
+      </div>
+      <div class="loading"><span class="spinner"></span> Generando explicación…</div>`;
+    explainPanel.querySelector(".explain-panel-name").textContent = panelTitle(meta);
+  }
+
+  function renderPanel(meta, data) {
+    const level = data.detail_level || "intermedio";
+    const signal = signalBadge(meta.key, data);
+    const risk = riskBadge(data);
+    const levelName = LEVEL_NAMES[level] || level;
+    explainPanel.classList.remove("is-loading");
+    explainPanel.innerHTML = `
+      <div class="explain-panel-head">
+        <div class="explain-panel-title">
+          <span class="badge-label">EXPLICACIÓN EN SIMPLE</span>
+          <h3 class="explain-panel-name"></h3>
+        </div>
+        <div class="badge-row">
+          <span class="badge ${signal.cls}">${signal.text}</span>
+          ${risk ? `<span class="badge badge-risk ${risk.cls}">${risk.text}</span>` : ""}
+        </div>
+        <a class="detail-tag ${level}" href="${window.APP_ENDPOINTS.profile}" title="Cambiar mi nivel en Mi perfil">Nivel ${levelName}</a>
+        <button type="button" class="panel-close" aria-label="Cerrar explicación">×</button>
+      </div>
+      <p class="explain-text"></p>
+      ${renderScale(meta.key, data, level)}
+      <div class="explain-meta">
+        ${renderFinbertBadge(data.finbert_signal)}
+        ${data.coherent === false ? '<span class="warn">Marcado para revisión de coherencia.</span>' : ""}
+      </div>
+      <div class="explain-actions">
+        <button type="button" class="link-btn regen-btn">No entendí esto</button>
+        <button type="button" class="link-btn done-btn">Entendido</button>
+      </div>`;
+    explainPanel.querySelector(".explain-panel-name").textContent = panelTitle(meta);
+    explainPanel.querySelector(".explain-text").textContent = data.explanation;
+    explainPanel.querySelector(".regen-btn").addEventListener("click", () => regenerateCard(meta));
+    explainPanel.querySelector(".done-btn").addEventListener("click", closePanel);
+    explainPanel.querySelector(".panel-close").addEventListener("click", closePanel);
+  }
+
+  function closePanel() {
+    const key = activeKey;
+    activeKey = null;
+    explainPanel.classList.add("hidden");
+    explainPanel.classList.remove("is-loading");
+    explainPanel.innerHTML = "";
+    updateCardButtons();
+    const btn = key && document.querySelector(`.indicator-card[data-indicator="${key}"] .explain-cta`);
+    if (btn) btn.focus({ preventScroll: true });
+  }
+
+  // Handler del boton de la card: abre el panel de ese indicador (o lo cierra
+  // si ya era el activo). Solo la primera vez pide /api/query, que es la unica
+  // llamada que escribe log; despues reutiliza la explicacion ya cargada.
+  async function selectIndicator(meta) {
     if (!current) return;
+    if (activeKey === meta.key) {
+      closePanel();
+      return;
+    }
+    indicatorsError.classList.add("hidden");
+    activeKey = meta.key;
+    updateCardButtons();
+
+    const known = lastIndicatorData[meta.key];
+    if (known && known.explanation) {
+      renderPanel(meta, known);
+      revealPanel();
+      return;
+    }
+
     const state = cardState[meta.key];
     const card = document.querySelector(`.indicator-card[data-indicator="${meta.key}"]`);
+    showPanelLoading(meta);
+    revealPanel();
     if (card) card.classList.add("card-loading");
 
     try {
       const data = await fetchExplanation(current.symbol, meta.key, state.days, 0);
-      // Preservamos campos ricos del /api/query (explanation, coherent) y
-      // aseguramos que renderCard entre en modo explained=true.
+      if (cardState[meta.key] !== state) return; // se cargo otro instrumento/periodo
+      // El servidor puede partir en la redaccion preferida del usuario (RF-13.2):
+      // el contador local debe seguirla para que "No entendí esto" rote desde ahi.
+      state.variant = data.variant || 0;
       lastIndicatorData[meta.key] = data;
-      renderCard(meta, data);
       composeSummary();
+      if (activeKey === meta.key) renderPanel(meta, data);
+      updateCardButtons();
     } catch (err) {
-      indicatorsError.textContent = err.message;
-      indicatorsError.classList.remove("hidden");
+      if (cardState[meta.key] === state) {
+        if (activeKey === meta.key) closePanel();
+        indicatorsError.textContent = err.message;
+        indicatorsError.classList.remove("hidden");
+      }
     } finally {
       if (card) card.classList.remove("card-loading");
     }
@@ -946,15 +1419,24 @@
     if (!current) return;
     const state = cardState[meta.key];
     state.variant += 1;
+    explainPanel.classList.add("is-loading");
 
     try {
       const data = await fetchExplanation(current.symbol, meta.key, state.days, state.variant);
+      if (cardState[meta.key] !== state) return;
       lastIndicatorData[meta.key] = data;
-      renderCard(meta, data);
       composeSummary();
+      if (activeKey === meta.key) {
+        renderPanel(meta, data);
+        const regen = explainPanel.querySelector(".regen-btn");
+        if (regen) regen.focus({ preventScroll: true });
+      }
     } catch (err) {
+      state.variant -= 1;
       indicatorsError.textContent = err.message;
       indicatorsError.classList.remove("hidden");
+    } finally {
+      explainPanel.classList.remove("is-loading");
     }
   }
 
@@ -968,17 +1450,36 @@
 
     if (!trend || !rsi || !macd || !bb || !current) return;
 
-    const trendWord = trend.trend === "bajista" ? "bajista" : "alcista";
-    const macdWord = macd.trend === "bajista" ? "bajista" : "alcista";
-    const bbSignal = bb.signal === "sobrecomprado"
-      ? "por sobre el rango habitual del precio"
-      : bb.signal === "sobrevendido"
-      ? "por debajo del rango habitual del precio"
-      : "dentro del rango habitual del precio";
+    const name = current.name || current.symbol.replace(".SN", "");
+    const kind = (current.type || "Acción").toLowerCase();
+    const sector = current.sector && current.sector !== "Ticker personalizado"
+      ? ` del sector ${current.sector}`
+      : "";
+
+    // Cuantas senales apuntan al alza: medias moviles y MACD por tendencia;
+    // RSI y Bollinger por su zona (sobrevendido = posible rebote, sobrecomprado = posible freno).
+    const alza = [trend.trend, macd.trend].filter((t) => t !== "bajista").length;
+    const extremos = [rsi.signal, bb.signal].filter(
+      (s) => s === "sobrecomprado" || s === "sobrevendido"
+    );
+    let lectura;
+    if (alza === 2) lectura = "Hoy sus señales de tendencia apuntan al alza";
+    else if (alza === 0) lectura = "Hoy sus señales de tendencia apuntan a la baja";
+    else lectura = "Hoy sus señales de tendencia están divididas";
+    if (extremos.length === 0) {
+      lectura += " y el precio se mueve en una zona normal.";
+    } else {
+      const zona = extremos.includes("sobrecomprado") && extremos.includes("sobrevendido")
+        ? "con señales de extremo en direcciones opuestas"
+        : extremos[0] === "sobrecomprado"
+        ? "y el precio está en una zona alta, donde suele haber más riesgo de retroceso"
+        : "y el precio está en una zona baja, donde a veces aparece un rebote";
+      lectura += lectura.endsWith("divididas") ? `, ${zona}.` : ` ${zona}.`;
+    }
     const parts = [
-      `${current.symbol} muestra una tendencia ${trendWord} según sus medias móviles y una lectura ${macdWord} en el MACD.`,
-      `El RSI está en ${rsi.value} puntos, lo que indica riesgo ${rsi.risk_level} de sobrecompra o sobreventa.`,
-      `Las Bandas de Bollinger sitúan al precio ${bbSignal} (%B ${bb.value}, riesgo ${bb.risk_level}).`,
+      `${name} es una ${kind}${sector} que se transa en la Bolsa de Santiago.`,
+      lectura,
+      "Abre cada indicador para ver qué significa en simple.",
     ];
     summaryText.textContent = parts.join(" ");
   }
@@ -989,6 +1490,10 @@
     summaryLoading.classList.remove("hidden");
     indicatorGrid.innerHTML = "";
     summaryText.textContent = "";
+    activeKey = null;
+    explainPanel.classList.add("hidden");
+    explainPanel.innerHTML = "";
+    Object.keys(lastIndicatorData).forEach((k) => delete lastIndicatorData[k]);
 
     window.APP_INDICATORS.forEach((meta) => {
       cardState[meta.key] = { variant: 0, days };
@@ -1025,7 +1530,7 @@
     highlightSelected();
 
     viewSymbol.textContent = inst.name;
-    viewSector.textContent = `${inst.symbol} · ${inst.sector || inst.type}`;
+    viewSector.textContent = `${inst.symbol.replace(".SN", "")} · ${inst.sector || inst.type}`;
     viewPrice.textContent = fmtPrice(inst.price);
     viewChange.textContent = fmtChange(inst.daily_change_pct);
     viewChange.className = `change-badge change ${changeClass(inst.daily_change_pct)}`;
@@ -1058,15 +1563,64 @@
   // Selector de intervalo de vela (Diario/Semanal/Mensual/Trimestral): solo
   // afecta la granularidad del grafico. Los indicadores del panel siguen
   // atados al rango del boton, no al intervalo.
-  const intervalSelect = document.getElementById("interval-select");
-  if (intervalSelect) {
-    intervalSelect.addEventListener("change", (e) => {
-      selectedInterval = e.target.value;
-      if (current) {
-        loadChart(current.symbol, selectedDays);
+  // Sistema de dropdowns: abre al hacer click en .ctrl-btn, cierra al hacer
+  // click fuera o al seleccionar una opcion.
+  document.querySelectorAll(".ctrl-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wrap = btn.closest(".ctrl-wrap");
+      const isOpen = wrap.classList.contains("open");
+      document.querySelectorAll(".ctrl-wrap").forEach((w) => {
+        w.classList.remove("open");
+        w.querySelector(".ctrl-btn")?.setAttribute("aria-expanded", "false");
+      });
+      if (!isOpen) {
+        wrap.classList.add("open");
+        btn.setAttribute("aria-expanded", "true");
       }
     });
-  }
+  });
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".ctrl-wrap").forEach((w) => {
+      w.classList.remove("open");
+      w.querySelector(".ctrl-btn")?.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  // Intervalo de vela desde el dropdown
+  document.querySelectorAll("[data-interval]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const interval = item.dataset.interval;
+      if (interval === selectedInterval) {
+        document.getElementById("ctrl-interval")?.classList.remove("open");
+        return;
+      }
+      selectedInterval = interval;
+      document.querySelectorAll("[data-interval]").forEach((i) => i.classList.toggle("active", i === item));
+      const ibtn = document.getElementById("ctrl-interval-btn");
+      if (ibtn) ibtn.innerHTML = `${INTERVAL_LABELS[interval] || interval} <span class="ctrl-chevron">▾</span>`;
+      document.getElementById("ctrl-interval")?.classList.remove("open");
+      if (current) loadChart(current.symbol, selectedDays);
+    });
+  });
+
+  // Tipo de gráfico desde el dropdown
+  document.querySelectorAll("[data-chart-type]").forEach((item) => {
+    item.addEventListener("click", () => {
+      const type = item.dataset.chartType;
+      if (type === selectedChartType) {
+        document.getElementById("ctrl-charttype")?.classList.remove("open");
+        return;
+      }
+      selectedChartType = type;
+      document.querySelectorAll("[data-chart-type]").forEach((i) => i.classList.toggle("active", i === item));
+      document.getElementById("ctrl-charttype")?.classList.remove("open");
+      if (chartInstance && lastChartSeries) {
+        createPriceSeries(type);
+        renderChart(lastChartSeries);
+      }
+    });
+  });
 
   // RF-10: una sola llamada por instrumento seleccionado, independiente de
   // las consultas paralelas por indicador (ver comentario en el backend
@@ -1108,26 +1662,3 @@
   loadQuotes();
 })();
 
-// Instrumento 1: banner recordatorio para responder la autoevaluación.
-// El consentimiento se otorga al momento del registro (checkbox opcional en
-// register.html / modal de auth). Este banner solo aparece cuando la cuenta
-// tiene `acepta_evaluacion=True` y ya cumplió `SURVEY_THRESHOLD` visitas.
-// "Responder ahora" navega a /encuesta; "Más tarde" oculta el banner por esta
-// sesión (no cambia la decisión persistida).
-(function initStudyBanner() {
-  const banner = document.getElementById("study-banner");
-  if (!banner) return;
-
-  const postponeBtn = document.getElementById("study-postpone");
-  let alreadyShown = false;
-
-  window.showStudyBanner = function () {
-    if (alreadyShown) return;
-    alreadyShown = true;
-    banner.classList.remove("hidden");
-  };
-
-  if (postponeBtn) {
-    postponeBtn.addEventListener("click", () => banner.classList.add("hidden"));
-  }
-})();

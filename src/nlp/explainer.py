@@ -1,167 +1,143 @@
 """Procesador NLP (RF-04, RF-05, RF-06).
 
-Genera explicaciones en lenguaje natural, en espanol y sin
-tecnicismos, a partir del valor numerico de un indicador financiero.
+Genera explicaciones en lenguaje natural, en espanol, a partir del valor
+numerico de un indicador financiero, con el nivel de explicacion del usuario
+(basico / intermedio / avanzado, ver levels.py; plantillas en templates.py).
 
-Diseno: FinBERT (RF-04.1) clasifica una senal de sentimiento del texto
-producido por un motor de plantillas + reglas, y el resultado final se
-valida contra el valor real del indicador (RF-04.2, en validator.py).
-El diseno de plantillas + validador es intencional: garantiza que la
-respuesta no contradiga el dato numerico incluso si el modelo alucina.
+Diseno: con `use_llm` activo, un LLM (Groq) redacta el texto segun la ficha
+del nivel; se acepta solo si pasa una verificacion minima (etiqueta de riesgo,
+valor y vocabulario del nivel). Si no, o si el LLM falla, se usan las plantillas
+(templates.py), coherentes con el dato por construccion. El resultado se valida
+despues contra el valor real del indicador (RF-04.2, en validator.py), que
+marca la discrepancia pero no bloquea el texto.
 
-FinBERT esta activo por defecto (RF-04.1). Si `transformers`/`torch` no
-estan instalados o el modelo falla, la senal cae silenciosamente a None
-y las plantillas siguen produciendo una explicacion valida (fallback
-silencioso, coherente con la tolerancia a fallos de RNF-09).
+FinBERT (RF-04.1) es opcional: solo agrega una etiqueta de sentimiento y no
+participa en la redaccion. Si `transformers`/`torch` no estan instalados o el
+modelo falla, la senal cae silenciosamente a None (fallback silencioso,
+coherente con la tolerancia a fallos de RNF-09).
 """
 
 import os
 
 from .readability import fernandez_huerta_score
 
-MAX_WORDS = 150
+from .levels import DEFAULT_LEVEL, LEVELS, contains_forbidden_term, level_max_words
+from .templates import NATIONAL_REFERENCES, STYLE_LABELS, TEMPLATES  # noqa: F401 - API publica
 
-NATIONAL_REFERENCES = {
-    "rsi": [
-        "Este tipo de señales suelen leerse junto al comportamiento general del IPSA, para no sacar conclusiones solo con un instrumento.",
-    ],
-    "medias_moviles": [
-        "Comparar esta tendencia con el desempeño del IPSA ayuda a saber si el movimiento es propio del instrumento o de todo el mercado chileno.",
-    ],
-    "macd": [
-        "Vale la pena mirar cómo se ve esta señal en el IPSA en el mismo período, para saber si el impulso es propio del instrumento o del mercado chileno en general.",
-    ],
-    "bandas_bollinger": [
-        "En un mercado como el chileno, con volumen acotado, es útil comparar esta lectura con lo que ocurre en el IPSA en las mismas fechas.",
-    ],
-}
+# Tope absoluto; cada nivel tiene el suyo, mas bajo (levels.LEVELS[nivel]["max_words"]).
+MAX_WORDS = 150
 
 RISK_LABELS = {"bajo": "riesgo bajo", "medio": "riesgo medio", "alto": "riesgo alto"}
 
-# RF-13.2 / RF-18.3: frase adicional para el nivel de detalle "detallado", usada cuando el
-# perfil de aprendizaje del usuario indica que le ha costado comprender un indicador
-# (varias solicitudes de regeneracion registradas para ese indicador).
-DETAIL_EXTRAS = {
-    "rsi": "En términos simples: este número solo compara qué tan fuertes fueron las subidas frente a las bajadas recientes; no predice con certeza lo que vendrá.",
-    "medias_moviles": "En términos simples: comparar un promedio de precio reciente con uno más antiguo es una forma habitual de detectar si el precio está cambiando de dirección.",
-    "macd": "En términos simples: el MACD compara un promedio de precios rápido con uno más lento; cuando el rápido sube por encima del lento se interpreta como que el precio está tomando impulso al alza.",
-    "bandas_bollinger": "En términos simples: las Bandas de Bollinger marcan un rango habitual de variación del precio; cuando el precio se sale del rango puede significar que el mercado se emocionó (subida o bajada fuerte de corto plazo).",
-}
-
-TEMPLATES = {
+# Lectura tecnica de la senal, con el umbral que la define (marcador {zona}).
+_ZONA = {
     "rsi": {
-        "bajo": [
-            "El RSI de {symbol} es {value} puntos, en una zona neutral. No hay señales claras de sobrecompra ni de sobreventa "
-            "en este momento ({risk_label} asociado a esta lectura).",
-            "{symbol} tiene un RSI de {value} puntos ({risk_label}). Se encuentra en un rango tranquilo, sin señales extremas "
-            "en el corto plazo.",
-            "El RSI de {symbol} está en {value} puntos ({risk_label}), un valor moderado que no sugiere presiones fuertes "
-            "ni de compra ni de venta.",
-        ],
-        "medio": [
-            "El RSI de {symbol} es {value} puntos ({risk_label}). Se ubica en un rango intermedio, sin señales extremas de "
-            "compra o venta excesiva.",
-            "{symbol} muestra un RSI de {value} puntos ({risk_label}), en una zona intermedia que conviene observar antes de "
-            "sacar conclusiones.",
-            "El RSI de {symbol} llega a {value} puntos ({risk_label}), un valor que refleja actividad reciente sin ser aún "
-            "una señal contundente.",
-        ],
-        "alto": [
-            "El RSI de {symbol} es {value} puntos ({risk_label}). Un valor tan alto o tan bajo suele indicar que el "
-            "instrumento fue comprado o vendido en exceso recientemente, lo que podría anticipar un cambio de tendencia.",
-            "{symbol} presenta un RSI de {value} puntos ({risk_label}), lectura que sugiere una zona extrema donde suele "
-            "haber una corrección de precio en los días siguientes.",
-            "El RSI de {symbol} alcanza {value} puntos ({risk_label}), un nivel poco común que suele preceder a "
-            "movimientos de reversión en el corto plazo.",
-        ],
+        "sobrecomprado": "en sobrecompra (sobre 70)",
+        "sobrevendido": "en sobreventa (bajo 30)",
+        "neutral": "entre 30 y 70, zona neutral",
     },
     "medias_moviles": {
-        "bajo": [
-            "Comparando el promedio de precios reciente con el más antiguo, {symbol} muestra una tendencia {trend} leve "
-            "de {value}% ({risk_label}), sin una dirección demasiado marcada.",
-            "{symbol} tiene una tendencia {trend} de {value}% al comparar sus dos promedios de precio ({risk_label}), un "
-            "movimiento pequeño y sin fuerza clara.",
-            "La diferencia entre los promedios de precio de {symbol} es de {value}% en dirección {trend} ({risk_label}), "
-            "una señal suave de la evolución del precio.",
-        ],
-        "medio": [
-            "{symbol} muestra una tendencia {trend} de {value}% al comparar sus promedios de precio reciente y anterior "
-            "({risk_label}).",
-            "Los promedios de precio de {symbol} muestran una tendencia {trend} de {value}% ({risk_label}), un movimiento "
-            "moderado en esa dirección.",
-            "{symbol} refleja una tendencia {trend} de {value}% entre sus dos promedios de precio ({risk_label}), un "
-            "cambio notorio aunque no extremo.",
-        ],
-        "alto": [
-            "{symbol} presenta una tendencia {trend} marcada de {value}% entre sus promedios de precio reciente y "
-            "anterior ({risk_label}), lo que sugiere un movimiento de precio con fuerza en esa dirección.",
-            "Los promedios de precio de {symbol} indican una tendencia {trend} pronunciada de {value}% ({risk_label}), "
-            "señal de un movimiento sostenido en el tiempo.",
-            "{symbol} muestra una tendencia {trend} fuerte de {value}% ({risk_label}) entre sus promedios de precio, "
-            "un cambio de dirección con impulso relevante.",
-        ],
+        "alcista": "la media corta está sobre la larga",
+        "bajista": "la media corta está bajo la larga",
     },
     "macd": {
-        "bajo": [
-            "El MACD de {symbol} muestra una señal {trend} suave (histograma en {value} puntos, {risk_label}). El precio "
-            "no tiene un impulso fuerte hacia arriba ni hacia abajo en este momento.",
-            "{symbol} presenta un MACD {trend} con histograma de {value} puntos ({risk_label}). Es una señal tranquila, "
-            "sin fuerza clara de subida ni de bajada.",
-            "El histograma del MACD de {symbol} está en {value} puntos, con lectura {trend} ({risk_label}). Un valor así "
-            "sugiere un mercado sin dirección marcada.",
-        ],
-        "medio": [
-            "El MACD de {symbol} tiene una señal {trend} con histograma de {value} puntos ({risk_label}). El precio "
-            "muestra un impulso moderado en esa dirección.",
-            "{symbol} entrega una lectura {trend} en el MACD (histograma {value}, {risk_label}). Es una señal a observar, "
-            "aunque aún no es contundente.",
-            "El MACD de {symbol} apunta a una tendencia {trend} intermedia ({value} pts en el histograma, {risk_label}), "
-            "consistente con un cambio de ritmo del precio.",
-        ],
-        "alto": [
-            "El MACD de {symbol} muestra una señal {trend} fuerte (histograma de {value} puntos, {risk_label}). Un valor "
-            "así indica que el precio está tomando impulso pronunciado en esa dirección.",
-            "{symbol} presenta un MACD con lectura {trend} marcada (histograma {value}, {risk_label}), señal de un "
-            "movimiento con inercia sostenida.",
-            "El histograma del MACD de {symbol} alcanza {value} puntos ({trend}, {risk_label}), un nivel elevado que "
-            "suele acompañar movimientos de precio pronunciados.",
-        ],
+        "alcista": "MACD sobre su línea de señal",
+        "bajista": "MACD bajo su línea de señal",
     },
     "bandas_bollinger": {
-        "bajo": [
-            "El indicador %B de {symbol} es {value} ({risk_label}). El precio se mueve dentro del rango habitual definido "
-            "por las Bandas de Bollinger, sin extremos.",
-            "{symbol} tiene un %B de {value} ({risk_label}), lo que ubica al precio en el centro del rango habitual, sin "
-            "señales de estrés en la cotización.",
-            "La lectura de las Bandas de Bollinger para {symbol} entrega un %B de {value} ({risk_label}), consistente con "
-            "un precio dentro de sus márgenes normales.",
-        ],
-        "medio": [
-            "El %B de {symbol} es {value} ({risk_label}). El precio se acerca a uno de los bordes del rango habitual, lo "
-            "que a veces anticipa un movimiento más marcado en los días siguientes.",
-            "{symbol} tiene un %B de {value} ({risk_label}), rozando los extremos del rango. Es momento de observar la "
-            "evolución del precio con más atención.",
-            "La lectura %B de {symbol} está en {value} ({risk_label}), señalando que el precio está acercándose a un "
-            "límite del rango habitual.",
-        ],
-        "alto": [
-            "El %B de {symbol} es {value} ({risk_label}). El precio se salió del rango habitual, señal de que el mercado "
-            "reaccionó con fuerza a la baja o al alza en el muy corto plazo.",
-            "{symbol} presenta un %B de {value} ({risk_label}), un valor fuera del rango típico. Suele leerse como una "
-            "reacción intensa que puede revertirse en los próximos días.",
-            "La lectura de Bandas de Bollinger para {symbol} arroja un %B de {value} ({risk_label}), señal de que el "
-            "precio se ha desviado del rango habitual y podría corregir en breve.",
-        ],
+        "sobrecomprado": "sobre la banda superior (%B mayor que 1)",
+        "sobrevendido": "bajo la banda inferior (%B menor que 0)",
+        "cercano_superior": "cerca de la banda superior (%B cerca de 1)",
+        "cercano_inferior": "cerca de la banda inferior (%B cerca de 0)",
+        "normal": "dentro de las bandas, lejos de los extremos",
     },
 }
 
+# La misma lectura sin jerga (marcador {llano}).
+_LLANO = {
+    "rsi": {
+        "sobrecomprado": "subió muy rápido en poco tiempo",
+        "sobrevendido": "bajó muy rápido en poco tiempo",
+        "neutral": "se ha movido con calma",
+    },
+    "bandas_bollinger": {
+        "sobrecomprado": "por encima del techo de su rango",
+        "sobrevendido": "por debajo del piso de su rango",
+        "cercano_superior": "cerca del techo de su rango",
+        "cercano_inferior": "cerca del piso de su rango",
+        "normal": "en la zona media de su rango",
+    },
+}
 
-def _fill_template(template: str, data: dict) -> str:
+_DIR = {"alcista": "hacia arriba", "bajista": "hacia abajo"}
+
+
+def _reading_key(data: dict) -> str:
+    """Clave de lectura del indicador: la senal (RSI/Bollinger) o la tendencia (MA/MACD)."""
+    indicator = data.get("indicator", "")
+    if indicator in ("medias_moviles", "macd"):
+        return data.get("trend", "alcista")
+    signal = data.get("signal", "neutral" if indicator == "rsi" else "normal")
+    if signal == "cercano_al_extremo":
+        return "cercano_superior" if data.get("value", 0) >= 0.5 else "cercano_inferior"
+    return signal
+
+
+def _normalize_level(detail_level: str) -> str:
+    return detail_level if detail_level in LEVELS else DEFAULT_LEVEL
+
+
+def _build_finbert_input(indicator_data: dict) -> str:
+    """Construye una frase financiera corta en inglés para FinBERT.
+
+    FinBERT (ProsusAI/finbert) fue entrenado sobre noticias financieras y
+    filings SEC en inglés. Pasarle las explicaciones en español produce
+    resultados poco confiables. Esta función construye un input en inglés
+    descriptivo del estado del indicador para que el modelo opere en su
+    dominio de entrenamiento.
+    """
+    ind = indicator_data.get("indicator", "")
+    sym = indicator_data.get("symbol", "").replace(".SN", "")
+    val = indicator_data.get("value", 0)
+
+    if ind == "rsi":
+        sig_map = {"sobrecomprado": "overbought", "sobrevendido": "oversold"}
+        sig = sig_map.get(indicator_data.get("signal", ""), "neutral")
+        return f"{sym} RSI at {val}, {sig}"
+
+    if ind == "macd":
+        eng = "bullish" if indicator_data.get("trend") == "alcista" else "bearish"
+        return f"{sym} MACD {eng}, histogram {val}"
+
+    if ind == "medias_moviles":
+        eng = "bullish" if indicator_data.get("trend") == "alcista" else "bearish"
+        return f"{sym} moving averages {eng} trend, {val}%"
+
+    if ind == "bandas_bollinger":
+        sig_map = {
+            "sobrecomprado": "overbought",
+            "sobrevendido": "oversold",
+            "cercano_al_extremo": "near extreme",
+            "normal": "normal",
+        }
+        sig = sig_map.get(indicator_data.get("signal", ""), "normal")
+        return f"{sym} Bollinger Bands %B {val}, {sig}"
+
+    return f"{sym} {ind} {val}"
+
+
+def _fill_template(template: str, data: dict, display_name: str = "") -> str:
+    name = display_name if display_name else data.get("symbol", "").replace(".SN", "")
+    indicator = data.get("indicator", "")
+    key = _reading_key(data)
     return template.format(
-        symbol=data.get("symbol", ""),
+        symbol=name,
         value=data.get("value", ""),
         risk_label=RISK_LABELS.get(data.get("risk_level", "medio"), "riesgo medio"),
         trend=data.get("trend", "estable"),
+        zona=_ZONA.get(indicator, {}).get(key, ""),
+        llano=_LLANO.get(indicator, {}).get(key, ""),
+        dir=_DIR.get(data.get("trend", ""), "de lado"),
     )
 
 
@@ -169,7 +145,12 @@ def _trim_to_max_words(text: str, max_words: int = MAX_WORDS) -> str:
     words = text.split()
     if len(words) <= max_words:
         return text
-    return " ".join(words[:max_words]).rstrip(",.;") + "."
+    cut = " ".join(words[:max_words])
+    # Preferir cortar en el ultimo fin de oracion si conserva buena parte del texto.
+    last_stop = max(cut.rfind(". "), cut.rfind("? "), cut.rfind("! "))
+    if last_stop > 0 and len(cut[: last_stop + 1].split()) >= max_words * 0.6:
+        return cut[: last_stop + 1]
+    return cut.rstrip(",.;:") + "."
 
 
 # Cache del pipeline de FinBERT: se instancia una sola vez por proceso.
@@ -244,35 +225,73 @@ def generate_explanation(
     variant: int = 0,
     use_finbert: bool = True,
     include_national_reference: bool = True,
-    detail_level: str = "estandar",
+    detail_level: str = DEFAULT_LEVEL,
+    display_name: str = "",
+    use_llm: bool = False,
+    llm_api_key: str = "",
 ):
     """Genera una explicacion en lenguaje natural para un indicador extraido.
 
     `indicator_data` es el dict retornado por `extractor.get_indicator`.
-    `variant` selecciona una redaccion alternativa (RF-06.2, CU-13).
+    `variant` selecciona una redaccion alternativa (RF-06.2, CU-13) y fija el estilo.
     `use_finbert=True` por defecto (RF-04.1). Si el modelo no esta disponible,
     la senal queda en None y las plantillas siguen operando.
-    `detail_level` ("estandar" | "detallado") ajusta la extension segun el
-    perfil de aprendizaje del usuario (RF-13.2).
+    `detail_level` ("basico" | "intermedio" | "avanzado", ver levels.py) define como
+    se explica: vocabulario, umbrales, contexto IPSA y extension (RF-13.2).
+    `display_name` reemplaza el ticker en las plantillas por el nombre de la
+    empresa (ej. "Banco de Chile" en vez de "CHILE.SN").
+    `use_llm=True` intenta generar la explicacion con un LLM via Groq antes de
+    recurrir a las plantillas. Degradacion silenciosa si falla (RNF-09).
     """
     indicator = indicator_data["indicator"]
     risk_level = indicator_data["risk_level"]
-    detailed = detail_level == "detallado"
+    detail_level = _normalize_level(detail_level)
+    max_words = level_max_words(detail_level)
 
-    pool = TEMPLATES[indicator][risk_level]
+    # Intento LLM (degradacion silenciosa a plantillas si falla o incoherente)
+    if use_llm and llm_api_key:
+        try:
+            from .llm_explainer import generate_explanation_llm
+            _name = display_name or indicator_data.get("symbol", "").replace(".SN", "")
+            llm_text = generate_explanation_llm(indicator_data, _name, detail_level, llm_api_key, variant=variant)
+            # Verificacion minima: el texto debe contener el risk_label y el valor numerico,
+            # y respetar el vocabulario del nivel (el basico no admite jerga).
+            # Se verifica DESPUES de recortar: el recorte no debe quitar el riesgo ni el valor.
+            _risk_label = RISK_LABELS.get(risk_level, "")
+            _val_str = str(indicator_data.get("value", ""))
+            llm_text = _trim_to_max_words(llm_text, max_words)
+            if (
+                _risk_label
+                and _risk_label in llm_text.lower()
+                and _val_str in llm_text
+                and not contains_forbidden_term(detail_level, llm_text)
+            ):
+                readability = fernandez_huerta_score(llm_text)
+                finbert_input = _build_finbert_input(indicator_data) if use_finbert else None
+                finbert_signal = _finbert_signal(finbert_input) if finbert_input else None
+                return {
+                    "text": llm_text,
+                    "risk_level": risk_level,
+                    "variant": variant,
+                    "readability_score": readability,
+                    "finbert_signal": finbert_signal,
+                    "detail_level": detail_level,
+                }
+        except Exception:  # noqa: BLE001 - degradacion silenciosa por diseno
+            pass
+
+    pool = TEMPLATES[detail_level][indicator][risk_level]
     template = pool[variant % len(pool)]
-    text = _fill_template(template, indicator_data)
+    text = _fill_template(template, indicator_data, display_name=display_name)
 
-    if (include_national_reference or detailed) and indicator in NATIONAL_REFERENCES:
+    if include_national_reference and LEVELS[detail_level]["ipsa"] and indicator in NATIONAL_REFERENCES:
         refs = NATIONAL_REFERENCES[indicator]
         text = f"{text} {refs[variant % len(refs)]}"
 
-    if detailed and indicator in DETAIL_EXTRAS:
-        text = f"{text} {DETAIL_EXTRAS[indicator]}"
+    text = _trim_to_max_words(text, max_words)
 
-    text = _trim_to_max_words(text)
-
-    finbert_signal = _finbert_signal(text) if use_finbert else None
+    finbert_input = _build_finbert_input(indicator_data) if use_finbert else None
+    finbert_signal = _finbert_signal(finbert_input) if finbert_input else None
     readability = fernandez_huerta_score(text)
 
     return {
@@ -285,15 +304,14 @@ def generate_explanation(
     }
 
 
-def regenerate_explanation(indicator_data: dict, previous_variant: int, use_finbert: bool = True, detail_level: str = "estandar"):
+def regenerate_explanation(indicator_data: dict, previous_variant: int, use_finbert: bool = True, detail_level: str = DEFAULT_LEVEL, display_name: str = "", use_llm: bool = False, llm_api_key: str = ""):
     """Genera una redaccion alternativa distinta a la anterior (RF-06.2, CU-13)."""
     indicator = indicator_data["indicator"]
     risk_level = indicator_data["risk_level"]
-    pool_size = len(TEMPLATES[indicator][risk_level])
+    pool_size = len(TEMPLATES[_normalize_level(detail_level)][indicator][risk_level])
 
     if pool_size <= 1:
-        # No hay una redaccion alternativa disponible para este caso
-        return generate_explanation(indicator_data, variant=previous_variant, use_finbert=use_finbert, detail_level=detail_level)
+        return generate_explanation(indicator_data, variant=previous_variant, use_finbert=use_finbert, detail_level=detail_level, display_name=display_name, use_llm=use_llm, llm_api_key=llm_api_key)
 
     next_variant = (previous_variant + 1) % pool_size
-    return generate_explanation(indicator_data, variant=next_variant, use_finbert=use_finbert, detail_level=detail_level)
+    return generate_explanation(indicator_data, variant=next_variant, use_finbert=use_finbert, detail_level=detail_level, display_name=display_name, use_llm=use_llm, llm_api_key=llm_api_key)

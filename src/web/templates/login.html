@@ -7,16 +7,27 @@
 <form id="login-form" class="card">
   <div class="field">
     <label for="email">Correo electrónico</label>
-    <input type="email" id="email" name="email" required>
+    <input type="email" id="email" name="email" required autocomplete="email">
   </div>
   <div class="field">
     <label for="password">Contraseña</label>
-    <input type="password" id="password" name="password" required>
+    <div class="pw-wrap">
+      <input type="password" id="password" name="password" required autocomplete="current-password">
+      <button type="button" class="pw-toggle" aria-pressed="false">Mostrar</button>
+    </div>
   </div>
   <button type="submit">Iniciar sesión</button>
 </form>
 
 <div id="auth-error" class="error hidden" role="alert"></div>
+
+{% if google_oauth_enabled %}
+<div class="auth-divider"><span>o</span></div>
+<a href="{{ url_for('auth.google_login') }}" class="auth-google-btn">
+  {% include "_google_icon.html" %}
+  <span>Continuar con Google</span>
+</a>
+{% endif %}
 
 <p class="meta">¿Aún no tienes cuenta? <a href="{{ url_for('auth.register_page') }}">Regístrate</a>.</p>
 {% endblock %}

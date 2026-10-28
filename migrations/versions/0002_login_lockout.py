@@ -1,0 +1,29 @@
+"""bloqueo de login por intentos fallidos
+
+Revision ID: 0002
+Revises: 0001
+Create Date: 2026-10-23 15:00:00.000000
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision = '0002'
+down_revision = '0001'
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    # server_default permite agregar la columna NOT NULL sobre filas existentes.
+    with op.batch_alter_table('users', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('failed_login_attempts', sa.Integer(), server_default='0', nullable=False))
+        batch_op.add_column(sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True))
+
+
+def downgrade():
+    with op.batch_alter_table('users', schema=None) as batch_op:
+        batch_op.drop_column('locked_until')
+        batch_op.drop_column('failed_login_attempts')

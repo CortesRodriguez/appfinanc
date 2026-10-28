@@ -13,15 +13,22 @@ class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), nullable=False)
+    username = db.Column(db.String(80), nullable=False, unique=True, index=True)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=_utcnow)
+    password_hash = db.Column(db.String(255), nullable=True)
+    google_id = db.Column(db.String(255), unique=True, nullable=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=_utcnow)
 
-    # None = todavía no se le pidió consentimiento (aún no cruzó el umbral de consultas).
-    # True = aceptó participar en el estudio de autoevaluación retrospectiva.
-    # False = declinó explícitamente. No se le vuelve a preguntar salvo que lo reactive desde /perfil.
-    acepta_evaluacion = db.Column(db.Boolean, nullable=True, default=None)
+    # Experiencia declarada ("nunca" | "poco" | "experiencia"): punto de partida
+    # del nivel de detalle de las explicaciones (RF-13.2). NULL = no declarada.
+    experience_level = db.Column(db.String(20), nullable=True)
+    # Momento del ultimo cambio de experiencia: solo las regeneraciones ("No entendi esto")
+    # posteriores cuentan para bajar el nivel de cada indicador. NULL = cuentan todas.
+    level_reset_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    # Bloqueo anti fuerza bruta (ver authenticate_user)
+    failed_login_attempts = db.Column(db.Integer, nullable=False, default=0, server_default="0")
+    locked_until = db.Column(db.DateTime(timezone=True), nullable=True)
 
 
 class RevokedToken(db.Model):
@@ -30,4 +37,4 @@ class RevokedToken(db.Model):
     __tablename__ = "revoked_tokens"
 
     jti = db.Column(db.String(64), primary_key=True)
-    revoked_at = db.Column(db.DateTime, default=_utcnow)
+    revoked_at = db.Column(db.DateTime(timezone=True), default=_utcnow)

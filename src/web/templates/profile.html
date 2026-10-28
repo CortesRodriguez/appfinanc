@@ -2,87 +2,190 @@
 {% block title %}Mi perfil — Norte{% endblock %}
 
 {% block content %}
-<h1>Hola, {{ user.username }}</h1>
-<p class="lead">Resumen de tu aprendizaje: qué has consultado y en qué indicadores te ha costado más entender la explicación.</p>
+<div class="profile-page">
+  <header class="profile-head">
+    <h1>Hola, {{ user.username }}</h1>
+    <p class="lead">Tu actividad y cómo Norte adapta las explicaciones a ti.</p>
+  </header>
 
-<div class="card summary-grid">
-  <div><strong>Consultas totales</strong><span>{{ profile.total_queries }}</span></div>
-  <div><strong>Instrumentos distintos consultados</strong><span>{{ profile.top_instruments|length }}</span></div>
-  <div>
-    <strong>Indicador que más te ha costado</strong>
-    <span>{{ indicator_labels.get(profile.top_indicator, "—") if profile.top_indicator else "—" }}</span>
+  <div class="profile-tabs" role="tablist" aria-label="Secciones del perfil">
+    <button type="button" class="profile-tab active" role="tab" id="tab-resumen" aria-controls="panel-resumen" aria-selected="true" data-tab="resumen">Resumen</button>
+    <button type="button" class="profile-tab" role="tab" id="tab-historial" aria-controls="panel-historial" aria-selected="false" data-tab="historial">Historial</button>
+  </div>
+
+  <div class="profile-panel" id="panel-resumen" role="tabpanel" aria-labelledby="tab-resumen">
+
+  <section class="profile-stats" aria-label="Resumen">
+    <div class="stat">
+      <span class="stat-label">Explicaciones pedidas</span>
+      <span class="stat-value" id="profile-total">{{ profile.total_queries }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Instrumentos revisados</span>
+      <span class="stat-value">{{ profile.distinct_instruments }}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Indicador que más te cuesta</span>
+      <span class="stat-value stat-text">{{ indicator_labels.get(profile.top_indicator, "—") if profile.top_indicator else "—" }}</span>
+    </div>
+  </section>
+
+  <div class="profile-cols">
+    <section class="card" aria-labelledby="top-instruments-title">
+      <h2 id="top-instruments-title">Instrumentos más consultados</h2>
+      {% if profile.top_instruments %}
+      {% set max_count = profile.top_instruments[0].count %}
+      <ul class="bar-list">
+        {% for row in profile.top_instruments %}
+        <li>
+          <div class="bar-row">
+            <span class="bar-name">{{ row.name }} <small class="meta">{{ row.instrument.replace(".SN", "") }}</small></span>
+            <span class="bar-count">{{ row.count }}</span>
+          </div>
+          <div class="bar-track" aria-hidden="true"><div class="bar-fill" style="width: {{ (row.count / max_count * 100)|round|int }}%"></div></div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">Aún no hay datos. Elige una acción en <a href="{{ url_for('web.index') }}">Acciones</a>.</p>
+      {% endif %}
+    </section>
+
+    <section class="card" id="hard-indicator-card" aria-labelledby="hard-title">
+      <h2 id="hard-title">Lo que más te ha costado</h2>
+      {% if profile.top_indicator %}
+      <p class="meta">
+        <strong>{{ indicator_labels.get(profile.top_indicator, profile.top_indicator) }}</strong>
+        · "No entendí esto" <span id="profile-regenerations">{{ profile.top_indicator_regenerations }}</span> veces
+        · última vez en {{ profile.top_indicator_instrument_name }}
+      </p>
+      <p id="profile-explanation" class="explanation">{{ profile.top_indicator_explanation }}</p>
+      <button type="button" id="profile-regenerate-btn">Explicármelo de otra forma</button>
+      <div id="profile-loading" class="loading hidden"><span class="spinner"></span> Generando…</div>
+      <div id="profile-error" class="error hidden" role="alert"></div>
+      {% else %}
+      <p class="empty">Aún no hay datos suficientes. Si algo no te queda claro, usa "No entendí esto" en una explicación y aparecerá aquí.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="card" id="adaptation-card" aria-labelledby="adapt-title">
+    <h2 id="adapt-title">Cómo se adaptan tus explicaciones</h2>
+
+    <fieldset class="exp-group">
+      <legend>¿Has invertido antes?</legend>
+      <div class="exp-options">
+        {% set options = [
+          ("nunca", "Nunca he invertido", "Nivel Básico: te explicamos qué mide cada indicador con palabras simples, sin jerga."),
+          ("poco", "He invertido un poco", "Nivel Intermedio: una frase sobre qué mide, el término técnico traducido y el umbral que importa."),
+          ("experiencia", "Tengo experiencia", "Nivel Avanzado: lectura técnica y breve, sin repasar conceptos ni analogías."),
+        ] %}
+        {% for value, title, phrase in options %}
+        <label class="exp-option">
+          <input type="radio" name="experience" value="{{ value }}" {{ "checked" if profile.experience_level == value }}>
+          <span class="exp-title">{{ title }}</span>
+          <span class="exp-phrase">{{ phrase }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="field-hint" id="profile-experience-msg" role="status">
+        {% if not profile.experience_level %}Sin responder: usamos el nivel Intermedio. Puedes cambiarlo cuando quieras.{% endif %}
+      </p>
+    </fieldset>
+
+    <h3 class="sub-title">Tu nivel por indicador</h3>
+    <p class="meta">Con {{ profile.detail_threshold }} o más "No entendí esto" en un indicador, sus explicaciones bajan un nivel (más simples).</p>
+    <ul class="level-grid" id="detail-levels">
+      {% for key, level in profile.detail_levels.items() %}
+      <li class="level-card" data-indicator="{{ key }}">
+        <div class="level-top">
+          <strong>{{ indicator_labels[key] }}</strong>
+          <span class="detail-tag {{ level }}">{{ level_labels[level] }}</span>
+        </div>
+        <small class="meta detail-source">
+          {%- set src = profile.detail_sources[key] -%}
+          {%- if src == "historial" %}Por lo que has pedido{% elif src == "experiencia" %}Por tu experiencia{% else %}Nivel inicial{% endif -%}
+        </small>
+        {%- set style = profile.preferred_styles[key] %}
+        <small class="meta">Estilo: {{ style if style else "aún sin datos" }}</small>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  </div>
+
+  <div class="profile-panel hidden" id="panel-historial" role="tabpanel" aria-labelledby="tab-historial">
+    <section class="card table-card">
+      <h2 class="section-title">Explicaciones que pediste</h2>
+      {% if history %}
+      <div class="table-scroll">
+        <table class="table trace-table">
+          <thead>
+            <tr>
+              <th>Acción</th>
+              <th>Indicador</th>
+              <th class="num">Valor</th>
+              <th>Riesgo</th>
+              <th>Fuente</th>
+              <th class="num">Ventana</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in history %}
+            <tr>
+              <td data-label="Acción">{{ q.display_name }} <span class="tickr">{{ q.instrument.replace(".SN", "") }}</span></td>
+              <td data-label="Indicador" class="col-indicador">
+                {{ indicator_labels.get(q.indicator, q.indicator) }}
+                {% if q.is_regeneration %}<span class="history-tag" title="Pediste otra explicación con &quot;No entendí esto&quot;">Otra explicación</span>{% endif %}
+              </td>
+              <td data-label="Valor" class="num">{% if q.value is not none %}{{ q.value }} <span class="unit">{{ q.unit or "" }}</span>{% else %}—{% endif %}</td>
+              <td data-label="Riesgo">{% if q.risk_level %}<span class="badge badge-small {{ q.risk_level }}">{{ q.risk_level }}</span>{% else %}—{% endif %}</td>
+              <td data-label="Fuente" class="src">{{ q.source }}</td>
+              <td data-label="Ventana" class="num nowrap">{{ q.period_days ~ " días" if q.period_days else "—" }}</td>
+              <td data-label="Fecha" class="mono col-consultado">{{ q.created_at | es_datetime }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="meta">Tus últimas {{ history|length }} explicaciones, de la más reciente a la más antigua.</p>
+      {% else %}
+      <p class="meta">Aún no has pedido explicaciones. En <a href="{{ url_for('web.index') }}">Acciones</a>, elige una y presiona <strong>Ver explicación en simple</strong>.</p>
+      {% endif %}
+    </section>
+
+    {% if visits %}
+    <section class="card table-card">
+      <h2 class="section-title">Acciones que revisaste</h2>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr><th>Acción</th><th class="num">Veces</th><th>Última vez</th></tr>
+          </thead>
+          <tbody>
+            {% for v in visits %}
+            <tr>
+              <td data-label="Acción">{{ v.name }} <span class="tickr">{{ v.instrument.replace(".SN", "") }}</span></td>
+              <td data-label="Veces" class="num">{{ v.count }}</td>
+              <td data-label="Última vez" class="mono">{{ v.last_visit | es_datetime }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
   </div>
 </div>
-
-<section class="card">
-  <h2>Instrumentos más consultados</h2>
-  {% if profile.top_instruments %}
-  <table class="table">
-    <thead><tr><th>Instrumento</th><th>Consultas</th></tr></thead>
-    <tbody>
-      {% for row in profile.top_instruments %}
-      <tr><td>{{ row.instrument }}</td><td>{{ row.count }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>Aún no has consultado ningún instrumento con tu cuenta iniciada.</p>
-  {% endif %}
-</section>
-
-<section class="card" id="hard-indicator-card">
-  <h2>Indicador que más te ha costado comprender</h2>
-  {% if profile.top_indicator %}
-  <p class="meta">Pediste "No entendí esto" {{ profile.top_indicator_regenerations }} veces en
-    <strong>{{ indicator_labels.get(profile.top_indicator, profile.top_indicator) }}</strong>,
-    la última vez para {{ profile.top_indicator_instrument }}.</p>
-  <p id="profile-explanation" class="explanation">{{ profile.top_indicator_explanation }}</p>
-  <button type="button" id="profile-regenerate-btn">Generar una explicación nueva</button>
-  <div id="profile-loading" class="loading hidden"><span class="spinner"></span> Generando…</div>
-  <div id="profile-error" class="error hidden" role="alert"></div>
-  {% else %}
-  <p>Todavía no has pedido "No entendí esto" en ninguna explicación, así que no hay un indicador difícil que destacar. ¡Buena señal!</p>
-  {% endif %}
-</section>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  window.APP_ENDPOINTS = { profileRegenerate: "{{ url_for('profile.api_profile_regenerate') }}" };
+  window.APP_ENDPOINTS = {
+    profileRegenerate: "{{ url_for('profile.api_profile_regenerate') }}",
+    profileExperience: "{{ url_for('profile.api_profile_experience') }}",
+  };
 </script>
-<script>
-  (function () {
-    const btn = document.getElementById("profile-regenerate-btn");
-    if (!btn) return;
-
-    btn.addEventListener("click", async () => {
-      const loading = document.getElementById("profile-loading");
-      const errorBox = document.getElementById("profile-error");
-      errorBox.classList.add("hidden");
-      loading.classList.remove("hidden");
-      btn.disabled = true;
-
-      try {
-        const response = await fetch(window.APP_ENDPOINTS.profileRegenerate, {
-          method: "POST",
-          headers: csrfHeaders(),
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          errorBox.textContent = data.error || "No fue posible regenerar la explicación.";
-          errorBox.classList.remove("hidden");
-        } else {
-          document.getElementById("profile-explanation").textContent = data.explanation;
-        }
-      } catch (err) {
-        errorBox.textContent = "No fue posible conectar con el servidor.";
-        errorBox.classList.remove("hidden");
-      } finally {
-        loading.classList.add("hidden");
-        btn.disabled = false;
-      }
-    });
-  })();
-</script>
+<script src="{{ url_for('static', filename='js/profile.js') }}"></script>
 {% endblock %}

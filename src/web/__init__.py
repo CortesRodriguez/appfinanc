@@ -3,7 +3,7 @@
 from flask import Flask
 
 from config import Config
-from src.extensions import bcrypt, db, jwt
+from src.extensions import bcrypt, db, jwt, migrate, oauth
 
 
 def create_app(config_object=Config):
@@ -11,8 +11,19 @@ def create_app(config_object=Config):
     app.config.from_object(config_object)
 
     db.init_app(app)
+    migrate.init_app(app, db)
     bcrypt.init_app(app)
     jwt.init_app(app)
+    oauth.init_app(app)
+
+    if app.config.get("GOOGLE_CLIENT_ID"):
+        oauth.register(
+            name="google",
+            client_id=app.config["GOOGLE_CLIENT_ID"],
+            client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
 
     from src.auth.models import RevokedToken, User
 
@@ -31,7 +42,10 @@ def create_app(config_object=Config):
         except Exception:  # noqa: BLE001 - token invalido/expirado: se navega como anonimo
             current_user = None
 
-        return {"current_user": current_user}
+        return {
+            "current_user": current_user,
+            "google_oauth_enabled": bool(app.config.get("GOOGLE_CLIENT_ID")),
+        }
 
     from . import routes
     from src.auth import routes as auth_routes
@@ -44,8 +58,5 @@ def create_app(config_object=Config):
     # Filtro Jinja usado por el historial de consultas (RF-02.2) para
     # mostrar la fecha/hora en formato "13:25:45 - 28 de agosto de 2026".
     app.jinja_env.filters["es_datetime"] = routes._format_datetime_es
-
-    with app.app_context():
-        db.create_all()
 
     return app

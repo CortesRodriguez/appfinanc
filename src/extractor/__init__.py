@@ -5,11 +5,16 @@ Orquesta la seleccion de instrumento/periodo, la extraccion de datos
 """
 
 from .cache import TTLCache, price_history_cache
+from .news import get_company_news, get_market_news
 from .indicators import INDICATOR_TYPES, compute_indicator, compute_ma_series, resample_records
 from .sources import DataSourceError, fetch_batch_quotes, fetch_macro_indicators, fetch_price_history
 
 VALID_PERIODS = (30, 90, 180, 365)
 VALID_INTERVALS = ("1d", "1w", "1mo", "3mo")
+# Igual al largo de `instrument` en query_logs / instrument_visits: motores como
+# PostgreSQL rechazan valores mas largos que el VARCHAR (SQLite no lo hace), asi que
+# se corta aca con un 4xx.
+MAX_SYMBOL_LENGTH = 20
 
 # Exploracion historica extendida: el grafico siempre trae MAX_CHART_FETCH_DAYS
 # de historia (independiente del boton 1M/3M/6M/1A elegido) para que el usuario
@@ -29,7 +34,9 @@ class ExtractionError(Exception):
     """Error de negocio expuesto al Presentador (RF-09.1)."""
 
 
-def _validate_inputs(days: int, indicator: str = None, interval: str = None):
+def _validate_inputs(days: int, indicator: str = None, interval: str = None, symbol: str = None):
+    if symbol is not None and not 0 < len(symbol) <= MAX_SYMBOL_LENGTH:
+        raise ExtractionError(f"Ticker invalido: debe tener entre 1 y {MAX_SYMBOL_LENGTH} caracteres.")
     if days not in VALID_PERIODS:
         raise ExtractionError(f"Rango temporal invalido: {days}. Valores permitidos: {VALID_PERIODS}")
     if indicator is not None and indicator not in INDICATOR_TYPES:
@@ -66,7 +73,7 @@ def get_indicator(symbol: str, indicator: str, days: int = 90, alpha_vantage_key
     fuente de datos utilizada y la marca de tiempo de extraccion
     (trazabilidad RF-02.2).
     """
-    _validate_inputs(days, indicator)
+    _validate_inputs(days, indicator, symbol=symbol)
     history = _get_history(symbol, days, alpha_vantage_key, cache_ttl_seconds)
 
     try:
@@ -102,7 +109,7 @@ def get_price_series(
       server-side con `resample_records`. Esto mantiene un solo path de
       caching y aprovecha el fallback horario que arregla el bug de .SN.
     """
-    _validate_inputs(days, interval=interval)
+    _validate_inputs(days, interval=interval, symbol=symbol)
     fetch_days = MAX_CHART_FETCH_DAYS
     history = _get_history(symbol, fetch_days, alpha_vantage_key, cache_ttl_seconds)
 

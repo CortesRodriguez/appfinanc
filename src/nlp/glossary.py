@@ -5,16 +5,23 @@ import os
 
 _DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "glossary.json")
 
-with open(_DATA_PATH, encoding="utf-8") as f:
-    GLOSSARY_TERMS = json.load(f)
+try:
+    with open(_DATA_PATH, encoding="utf-8") as f:
+        GLOSSARY_TERMS = json.load(f)
+except FileNotFoundError:
+    GLOSSARY_TERMS = []
 
 
 def list_terms():
     return sorted(GLOSSARY_TERMS, key=lambda t: t["term"].lower())
 
 
-def search_terms(query: str):
+def search_terms(query: str, category: str = ""):
     query = (query or "").strip().lower()
+    category = (category or "").strip().lower()
+    terms = GLOSSARY_TERMS
+    if category:
+        terms = [t for t in terms if t.get("category", "").lower() == category]
     if not query:
-        return list_terms()
-    return [t for t in GLOSSARY_TERMS if query in t["term"].lower() or query in t["definition"].lower()]
+        return sorted(terms, key=lambda t: t["term"].lower())
+    return [t for t in terms if query in t["term"].lower() or query in t["definition"].lower()]

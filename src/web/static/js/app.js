@@ -1,3 +1,41 @@
+// Barra superior: menu de usuario (escritorio) y panel plegable (celular).
+(function initTopbarMenus() {
+  const toggle = document.getElementById("nav-toggle");
+  const nav = document.getElementById("main-nav");
+  const userBtn = document.getElementById("user-menu-btn");
+  const userList = document.getElementById("user-menu-list");
+
+  function setUserMenu(open) {
+    if (!userBtn) return;
+    userBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    userList.classList.toggle("hidden", !open);
+  }
+
+  function setNav(open) {
+    if (!toggle) return;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-label", open ? "Cerrar menú" : "Abrir menú");
+    nav.classList.toggle("open", open);
+  }
+
+  if (userBtn) {
+    userBtn.addEventListener("click", () => setUserMenu(userBtn.getAttribute("aria-expanded") !== "true"));
+    // Ir a "Historial" estando ya en el perfil solo cambia el hash: cerrar el menu.
+    userList.addEventListener("click", () => setUserMenu(false));
+  }
+  if (toggle) toggle.addEventListener("click", () => setNav(toggle.getAttribute("aria-expanded") !== "true"));
+
+  document.addEventListener("click", (event) => {
+    if (userBtn && !userBtn.parentElement.contains(event.target)) setUserMenu(false);
+    if (toggle && !nav.contains(event.target) && !toggle.contains(event.target)) setNav(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    setUserMenu(false);
+    setNav(false);
+  });
+})();
+
 // Presentador: logica de interaccion del lado del cliente (RF-07, RF-08, CU-01 a CU-05).
 
 (function initQueryForm() {
@@ -74,7 +112,7 @@
     try {
       const response = await fetch(window.APP_ENDPOINTS.query, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify(lastQuery),
       });
       const data = await response.json();
@@ -102,7 +140,7 @@
     try {
       const response = await fetch(window.APP_ENDPOINTS.regenerate, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({ ...lastQuery, previous_variant: lastVariant }),
       });
       const data = await response.json();
@@ -152,105 +190,5 @@
         list.appendChild(item);
       });
     }, 200);
-  });
-})();
-
-// CU-06 / CU-07: autoevaluación retrospectiva con resumen previo a la confirmación (RF-11.3)
-(function initSurveyForm() {
-  const form = document.getElementById("survey-form");
-  if (!form) return;
-
-  const reviewBtn = document.getElementById("review-btn");
-  const summarySection = document.getElementById("survey-summary");
-  const summaryList = document.getElementById("summary-list");
-  const confirmBtn = document.getElementById("confirm-submit-btn");
-  const backBtn = document.getElementById("back-to-edit-btn");
-  const resultBox = document.getElementById("survey-result");
-  const errorBox = document.getElementById("survey-error");
-
-  function collectAnswers() {
-    const items = form.querySelectorAll(".survey-item");
-    const answers = {};
-    let allAnswered = true;
-
-    items.forEach((item) => {
-      const conceptId = item.dataset.concept;
-      const beforeChecked = item.querySelector(`input[name="${conceptId}_before"]:checked`);
-      const nowChecked = item.querySelector(`input[name="${conceptId}_now"]:checked`);
-      if (!beforeChecked || !nowChecked) {
-        allAnswered = false;
-        return;
-      }
-      answers[conceptId] = { before: Number(beforeChecked.value), now: Number(nowChecked.value) };
-    });
-
-    return { answers, allAnswered };
-  }
-
-  reviewBtn.addEventListener("click", () => {
-    errorBox.classList.add("hidden");
-    const { answers, allAnswered } = collectAnswers();
-
-    if (!allAnswered) {
-      errorBox.textContent = "Debes marcar ambas escalas (antes y ahora) para cada concepto.";
-      errorBox.classList.remove("hidden");
-      return;
-    }
-
-    summaryList.innerHTML = "";
-    form.querySelectorAll(".survey-item").forEach((item) => {
-      const conceptId = item.dataset.concept;
-      const label = item.querySelector("legend").textContent.trim();
-      const pair = answers[conceptId];
-      const delta = pair.now - pair.before;
-      const li = document.createElement("li");
-      const deltaTxt = delta > 0 ? `+${delta}` : `${delta}`;
-      li.textContent = `${label} → antes ${pair.before}/5, ahora ${pair.now}/5 (Δ ${deltaTxt})`;
-      summaryList.appendChild(li);
-    });
-
-    form.classList.add("hidden");
-    summarySection.classList.remove("hidden");
-    summarySection.dataset.answers = JSON.stringify(answers);
-  });
-
-  backBtn.addEventListener("click", () => {
-    summarySection.classList.add("hidden");
-    form.classList.remove("hidden");
-  });
-
-  confirmBtn.addEventListener("click", async () => {
-    const answers = JSON.parse(summarySection.dataset.answers || "{}");
-    confirmBtn.disabled = true;
-
-    try {
-      const response = await fetch(window.APP_ENDPOINTS.surveySubmit, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(answers),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        errorBox.textContent = data.error || "No fue posible enviar la encuesta.";
-        errorBox.classList.remove("hidden");
-        summarySection.classList.add("hidden");
-        form.classList.remove("hidden");
-        return;
-      }
-
-      summarySection.classList.add("hidden");
-      const deltaSign = data.avg_delta > 0 ? "+" : "";
-      resultBox.innerHTML =
-        `<p><strong>¡Gracias por participar!</strong> Tu respuesta se guardó de forma anónima.</p>` +
-        `<p>Tu comprensión percibida cambió, en promedio, de <strong>${data.avg_before}/5</strong> ` +
-        `a <strong>${data.avg_now}/5</strong> (Δ ${deltaSign}${data.avg_delta}).</p>`;
-      resultBox.classList.remove("hidden");
-    } catch (err) {
-      errorBox.textContent = "No fue posible conectar con el servidor. Intenta nuevamente.";
-      errorBox.classList.remove("hidden");
-    } finally {
-      confirmBtn.disabled = false;
-    }
   });
 })();

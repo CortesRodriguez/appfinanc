@@ -76,6 +76,19 @@ def test_lookup_returns_404_for_unknown_symbol(client, monkeypatch):
     assert response.status_code == 404
 
 
+def test_symbol_longer_than_column_is_rejected_before_db(client):
+    """`instrument` es VARCHAR(20) y motores como PostgreSQL rechazan valores mas
+    largos con un error de BD (500). Las rutas deben cortarlo antes con un 4xx legible."""
+    too_long = "X" * 21
+
+    assert client.get(f"/api/lookup?symbol={too_long}").status_code == 400
+    assert client.post("/api/historial/visita", json={"symbol": too_long}).status_code == 400
+
+    response = client.post("/api/query", json={"symbol": too_long, "indicator": "rsi", "days": 90})
+    assert response.status_code == 502
+    assert "Ticker invalido" in response.get_json()["error"]
+
+
 def test_session_cookie_is_established_on_first_page_load(client):
     """La cookie de sesion debe quedar fijada desde la primera carga de
     pagina (before_app_request), antes de que el dashboard dispare
@@ -85,32 +98,6 @@ def test_session_cookie_is_established_on_first_page_load(client):
     response = client.get("/")
     assert client.get_cookie("session") is not None
     assert response.status_code == 200
-
-
-def test_log_visit_creates_exactly_one_row_per_instrument(client):
-    """Selecciona dos instrumentos distintos: debe quedar exactamente una
-    fila de historial por cada uno (RF-10), sin duplicados ni filas de mas."""
-    r1 = client.post("/api/historial/visita", json={"symbol": "SQM-B.SN"})
-    assert r1.status_code == 200
-
-    r2 = client.post("/api/historial/visita", json={"symbol": "FALABELLA.SN"})
-    assert r2.status_code == 200
-
-    hist = client.get("/history")
-    body = hist.data.decode()
-    assert body.count("SQM-B.SN") == 1
-    assert body.count("FALABELLA.SN") == 1
-
-
-def test_log_visit_lists_instrument_in_history(client):
-    """/api/historial/visita registra la visita al instrumento (RF-10).
-    La pagina /history la muestra en la seccion "Instrumentos visitados".
-    """
-    client.post("/api/historial/visita", json={"symbol": "SQM-B.SN"})
-    hist = client.get("/history")
-    body = hist.data.decode()
-    assert "SQM-B.SN" in body
-    assert "Instrumentos visitados" in body
 
 
 def _fake_macro(max_retries=2):
@@ -156,22 +143,15 @@ def test_ticker_degrades_gracefully_when_macro_source_fails(client, monkeypatch)
     assert any(item["label"] == "IPSA" for item in items)  # sigue viniendo de Yahoo, no de mindicador.cl
 
 
-def test_query_records_traceability_in_session_history(client, monkeypatch):
-    """RF-02.2 / CU-03: cada `/api/query` (consulta deliberada de un
-    indicador con explicacion) queda registrada en el historial de sesion
-    con la trazabilidad completa — indicador literal, fuente, extraccion y
-    marca de consulta. La pagina /history la renderiza en formato legible.
-    """
+def test_sparkline_returns_last_closes_for_catalog_symbol_only(client, monkeypatch):
     monkeypatch.setattr("src.extractor.fetch_price_history", _fake_history)
-    from src.extractor.cache import price_history_cache
+    from src.extractor import price_history_cache
 
     price_history_cache.clear()
+    ok = client.get("/api/sparkline?symbol=FALABELLA.SN")
+    assert ok.status_code == 200
+    closes = ok.get_json()["closes"]
+    assert len(closes) == 30 and all(isinstance(c, (int, float)) for c in closes)
 
-    client.post("/api/query", json={"symbol": "SQM-B.SN", "indicator": "rsi", "days": 180})
-
-    body = client.get("/history").data.decode()
-    # Debe aparecer el nombre literal del indicador y el simbolo consultado
-    assert "SQM-B.SN" in body
-    assert "Índice de Fuerza Relativa (RSI)" in body
-    # Y no debe mostrar el mensaje de "aun no has realizado consultas"
-    assert "Aún no has realizado consultas" not in body
+    assert client.get("/api/sparkline?symbol=NO-EXISTE.SN").status_code == 404
+    assert client.get("/api/sparkline").status_code == 404

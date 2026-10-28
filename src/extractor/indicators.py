@@ -60,7 +60,7 @@ def _to_series(records):
     df = df.sort_values("date")
     # Descartar filas con close=NaN antes de operar: si se cuela un NaN, se
     # propaga por diff() y rolling().mean() y termina como value=NaN en el
-    # dict del indicador, lo que rompe el INSERT en coherence_checks (NOT NULL).
+    # dict del indicador.
     return df.set_index("date")["close"].dropna()
 
 
@@ -74,8 +74,8 @@ def compute_rsi(records, window: int = 14):
     gains = delta.clip(lower=0)
     losses = -delta.clip(upper=0)
 
-    avg_gain = gains.rolling(window=window).mean()
-    avg_loss = losses.rolling(window=window).mean()
+    avg_gain = gains.ewm(com=window - 1, adjust=False).mean()
+    avg_loss = losses.ewm(com=window - 1, adjust=False).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi = 100 - (100 / (1 + rs))
@@ -280,8 +280,8 @@ def compute_ma_series(records, short_window: int = 50, long_window: int = 200):
     delta = close.diff()
     gains = delta.clip(lower=0)
     losses = -delta.clip(upper=0)
-    avg_gain = gains.rolling(window=rsi_window).mean()
-    avg_loss = losses.rolling(window=rsi_window).mean()
+    avg_gain = gains.ewm(com=rsi_window - 1, adjust=False).mean()
+    avg_loss = losses.ewm(com=rsi_window - 1, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     rsi_series = 100 - (100 / (1 + rs))
     rsi_series = rsi_series.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)

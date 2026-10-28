@@ -8,32 +8,46 @@
 <form id="register-form" class="card">
   <div class="field">
     <label for="username">Nombre de usuario</label>
-    <input type="text" id="username" name="username" required>
+    <input type="text" id="username" name="username" maxlength="80" required autocomplete="username">
   </div>
   <div class="field">
     <label for="email">Correo electrónico</label>
-    <input type="email" id="email" name="email" required>
+    <input type="email" id="email" name="email" required autocomplete="email">
   </div>
   <div class="field">
     <label for="password">Contraseña</label>
-    <input type="password" id="password" name="password" minlength="8" required>
-    <span class="meta">Mínimo 8 caracteres.</span>
+    <div class="pw-wrap">
+      <input type="password" id="password" name="password" minlength="8" maxlength="64" required autocomplete="new-password" aria-describedby="pw-policy">
+      <button type="button" class="pw-toggle" aria-pressed="false">Mostrar</button>
+    </div>
+    <small id="pw-policy" class="field-hint">Entre 8 y 64 caracteres, con al menos una letra, un número y un carácter especial (ej: !, @, #, $).</small>
   </div>
-  <div class="field consent-field">
-    <label class="consent-label">
-      <input type="checkbox" id="acepta_evaluacion" name="acepta_evaluacion">
-      <span>
-        <strong>Acepto participar en la evaluación de comprensión del sistema.</strong>
-        Es opcional. Si marcas esta casilla, al completar 5 consultas se te ofrecerá una encuesta breve
-        y anónima sobre cómo cambió tu comprensión de los indicadores financieros antes y después de usar Norte.
-        Tus respuestas se guardan sin quedar vinculadas a tu cuenta.
-      </span>
-    </label>
+  <div class="field">
+    <label for="password_confirm">Confirmar contraseña</label>
+    <input type="password" id="password_confirm" name="password_confirm" minlength="8" maxlength="64" required autocomplete="new-password">
+  </div>
+  <div class="field">
+    <label for="experience_level">¿Has invertido antes? <span class="meta">(opcional)</span></label>
+    <select id="experience_level" name="experience_level" aria-describedby="exp-hint">
+      <option value="">Prefiero no decirlo</option>
+      <option value="nunca">Nunca he invertido</option>
+      <option value="poco">He invertido un poco</option>
+      <option value="experiencia">Tengo experiencia</option>
+    </select>
+    <small id="exp-hint" class="field-hint">Solo sirve para ajustar el nivel de detalle de las explicaciones; puedes cambiarlo después en tu perfil.</small>
   </div>
   <button type="submit">Crear cuenta</button>
 </form>
 
 <div id="auth-error" class="error hidden" role="alert"></div>
+
+{% if google_oauth_enabled %}
+<div class="auth-divider"><span>o</span></div>
+<a href="{{ url_for('auth.google_login') }}" class="auth-google-btn">
+  {% include "_google_icon.html" %}
+  <span>Continuar con Google</span>
+</a>
+{% endif %}
 
 <p class="meta">¿Ya tienes cuenta? <a href="{{ url_for('auth.login_page') }}">Inicia sesión</a>.</p>
 {% endblock %}

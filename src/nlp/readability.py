@@ -37,7 +37,3 @@ def fernandez_huerta_score(text: str) -> float:
 
     score = 206.84 - 60 * syllables_per_word - 1.02 * words_per_sentence
     return round(score, 2)
-
-
-def is_readable(text: str, min_score: float = 50.0) -> bool:
-    return fernandez_huerta_score(text) >= min_score

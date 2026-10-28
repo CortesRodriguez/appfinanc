@@ -15,3 +15,7 @@ instance/
 # Herramientas de sesion
 .claude/
 .DS_Store
+
+# Capturas de pantalla y repo ajeno clonado
+Captura de pantalla*.png
+awesome-claude-code-subagents/
