@@ -1,37 +1,38 @@
-# ADR 0006: sesión con JWT en cookie httpOnly y CSRF de doble envío
+# 0006. Sesión con JWT en cookie httpOnly y CSRF de doble envío
 
-- Estado: aceptada
-- Requerimientos relacionados: RF-11, RF-12, RNF-06
+## Status
 
-## Contexto y problema
+Aceptada (registrada a posteriori).
+
+## Context
 
 Hay que autenticar usuarios con contraseña (y opcionalmente con Google), poder cerrar sesión de verdad y resistir XSS y CSRF.
 
-## Opciones consideradas
+Requerimientos relacionados: RF-11, RF-12, RNF-06.
 
-### A. Sesión nativa de Flask
-- Contra: sin expiración configurable ni revocación individual de tokens.
+Alternativas consideradas:
 
-### B. JWT en `localStorage`
-- Contra: accesible desde JavaScript; un XSS lo roba.
+- **Sesión nativa de Flask.** Descartada: sin expiración configurable ni revocación individual de tokens.
+- **JWT en `localStorage`.** Descartada: es accesible desde JavaScript y un XSS lo roba.
+- **JWT en cookie httpOnly con token CSRF de doble envío.** El token no es legible desde JS y el CSRF queda mitigado. Costo: toda petición mutante debe enviar el header `X-CSRF-TOKEN`.
 
-### C. JWT en cookie httpOnly con token CSRF de doble envío (elegida)
-- Pro: el token no es legible desde JS; CSRF mitigado.
-- Contra: toda petición mutante debe enviar el header `X-CSRF-TOKEN`.
+Referencia (verificar URL y año antes de citar): OWASP, *Cross-Site Request Forgery Prevention Cheat Sheet*.
 
-## Decisión
+## Decision
 
 Flask-JWT-Extended con el token en cookie httpOnly, expiración de 24 horas y revocación por `jti` en la tabla `revoked_tokens`. Una segunda cookie `csrf_access_token`, legible por JS, se reenvía en `X-CSRF-TOKEN` (ver `static/js/csrf.js`). Contraseñas con Flask-Bcrypt (8 a 64 caracteres y máximo 72 bytes UTF-8). Bloqueo de la cuenta durante 15 minutos tras 5 intentos fallidos. Login con Google mediante Authlib, sin vincular cuentas por correo.
 
-## Consecuencias
+## Consequences
 
-- Positivas: logout efectivo, bloqueo anti fuerza bruta, mitigación de XSS y CSRF.
-- Negativas: `JWT_COOKIE_SECURE` debe estar en `true` bajo HTTPS; la revocación exige una consulta a la base en cada petición autenticada.
+Se vuelve más fácil:
 
-## Verificación
+- Cerrar sesión de forma efectiva.
+- Frenar la fuerza bruta con el bloqueo por intentos.
+- Mitigar XSS y CSRF.
 
-`tests/test_auth.py`.
+Se vuelve más difícil:
 
-## Referencias
+- Desplegar sin HTTPS: `JWT_COOKIE_SECURE` debe estar en `true` bajo HTTPS.
+- Reducir la carga en la base: la revocación exige una consulta en cada petición autenticada.
 
-- OWASP, *Cross-Site Request Forgery Prevention Cheat Sheet* (verificar URL y año).
+Verificación: `tests/test_auth.py`.

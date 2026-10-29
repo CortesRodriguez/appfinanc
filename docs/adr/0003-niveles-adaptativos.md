@@ -1,25 +1,24 @@
-# ADR 0003: niveles adaptativos con ficha declarativa
+# 0003. Niveles adaptativos con ficha declarativa
 
-- Estado: aceptada como heurística; sin validación empírica
-- Requerimientos relacionados: RF-05.2, RF-06.2, RF-13.2, RF-14
+## Status
 
-## Contexto y problema
+Aceptada como heurística, sin validación empírica (registrada a posteriori).
+
+## Context
 
 El público objetivo va desde quien nunca ha invertido hasta quien tiene experiencia. Una misma explicación no sirve para todos.
 
-## Opciones consideradas
+Requerimientos relacionados: RF-05.2, RF-06.2, RF-13.2, RF-14.
 
-### A. Un solo nivel de explicación
-- Pro: simple. Contra: no responde al problema.
+Alternativas consideradas:
 
-### B. Reglas simples con tres niveles (elegida)
-- Pro: explicable, testeable, sin entrenar modelos.
-- Contra: el umbral de bajada de nivel no tiene respaldo empírico.
+- **Un solo nivel de explicación.** Simple, pero no responde al problema.
+- **Reglas simples con tres niveles.** Explicable, testeable y sin entrenar modelos. Costo: el umbral de bajada de nivel no tiene respaldo empírico.
+- **Modelo de usuario aprendido.** Descartada: requiere datos que el proyecto no tiene.
 
-### C. Modelo de usuario aprendido
-- Contra: requiere datos que el proyecto no tiene.
+Referencia (verificar antes de citar): fuente sobre modelos de usuario en sistemas adaptativos.
 
-## Decisión
+## Decision
 
 Tres niveles (`basico`, `intermedio`, `avanzado`) definidos por una ficha en `src/nlp/levels.py` (audiencia, vocabulario, términos prohibidos, umbrales, contexto IPSA, máximo de palabras). La misma ficha alimenta el prompt del LLM y las plantillas.
 
@@ -28,19 +27,18 @@ Tres niveles (`basico`, `intermedio`, `avanzado`) definidos por una ficha en `sr
 - Cambiar la experiencia declarada reinicia el conteo (`users.level_reset_at`).
 - `preferred_variant()` recuerda el estilo de redacción donde el usuario dejó de regenerar.
 
-## Consecuencias
+Se mantiene como una regla heurística y se declara como limitación en el informe. No se agregó una regla para subir de nivel ni se hizo configurable el umbral, porque cualquier valor nuevo tampoco tendría respaldo empírico.
 
-- Positivas: una sola fuente de verdad por nivel; tests recorren cada nivel y estilo contra el validador.
-- Negativas:
-  - Interpretar "No entendí esto" como baja comprensión y fijar el umbral en 2 son supuestos sin validar. El retiro de las encuestas (ADR 0007) quita la forma prevista de comprobarlos.
-  - Solo baja de nivel; nunca sube.
-- **Decisión sobre estos límites:** se mantiene como una regla heurística y se declara como limitación en el informe. No se agregó una regla para subir de nivel ni se hizo configurable el umbral, porque cualquier valor nuevo tampoco tendría respaldo empírico.
-- Mejoras posibles, si hay validación con usuarios: regla para subir de nivel tras N consultas sin regenerar; umbral configurable (`DETAIL_THRESHOLD` está en `src/profile/service.py`).
+## Consequences
 
-## Verificación
+Se vuelve más fácil:
 
-`tests/test_profile.py`.
+- Mantener una sola fuente de verdad por nivel.
+- Probar cada nivel y estilo contra el validador (`tests/test_profile.py`).
 
-## Referencias
+Se vuelve más difícil:
 
-- Fuente sobre modelos de usuario en sistemas adaptativos (verificar antes de citar).
+- Justificar el umbral: interpretar "No entendí esto" como baja comprensión y fijarlo en 2 son supuestos sin validar. El retiro de las encuestas (ADR 0007) quita la forma prevista de comprobarlos.
+- Recuperar un nivel perdido: solo baja, nunca sube.
+
+Si hubiera validación con usuarios, se podría agregar una regla para subir de nivel tras N consultas sin regenerar y hacer configurable el umbral (`DETAIL_THRESHOLD` está en `src/profile/service.py`).

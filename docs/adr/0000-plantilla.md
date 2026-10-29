@@ -1,41 +1,27 @@
-# ADR NNNN: título corto en forma de decisión
+# NNNN. Título corto en forma de decisión
 
-- Estado: propuesta | aceptada | reemplazada por ADR-NNNN
-- Fecha: AAAA-MM-DD
-- Requerimientos relacionados: RF-xx, RNF-xx
+<!--
+Plantilla de Michael Nygard (2011), "Documenting architecture decisions".
+Texto de las secciones tomado de la versión inglesa recopilada en
+https://github.com/joelparkerhenderson/architecture-decision-record
+Nygard no incluye una sección de alternativas: se describen dentro de Context.
+-->
 
-## Contexto y problema
+## Status
 
-Qué situación obliga a decidir y qué restricciones hay.
+¿En qué estado está? Propuesta, aceptada, rechazada, obsoleta o reemplazada por NNNN.
+Si la decisión se documentó después de tomarla, indicarlo: "registrada a posteriori".
 
-## Criterios de decisión
+## Context
 
-- Criterio 1
-- Criterio 2
+¿Qué problema motiva esta decisión o cambio? Incluir los requerimientos relacionados, las alternativas
+consideradas con su costo principal, y las referencias (marcar "verificar" las que no se hayan confirmado).
 
-## Opciones consideradas
+## Decision
 
-### Opción A
-- Pro:
-- Contra:
+¿Qué cambio se propone o se hace?
 
-### Opción B
-- Pro:
-- Contra:
+## Consequences
 
-## Decisión
-
-Se elige la opción X porque…
-
-## Consecuencias
-
-- Positivas:
-- Negativas o costos asumidos:
-
-## Verificación
-
-Cómo se comprueba en el repositorio (archivo, test, comando).
-
-## Referencias
-
-- Fuente (verificar autor, año y URL antes de citar).
+¿Qué se vuelve más fácil y qué se vuelve más difícil por este cambio? Indicar cómo se verifica
+(archivo, test o comando del repositorio).
