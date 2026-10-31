@@ -17,13 +17,29 @@ dato numerico real.
 import numpy as np
 import pandas as pd
 
-INDICATOR_TYPES = ("rsi", "medias_moviles", "macd", "bandas_bollinger")
+# Se deriva de INDICATOR_FUNCTIONS (al final del modulo) para mantener una sola lista.
 
 # Regla de re-muestreo de pandas para cada intervalo del selector de vela.
 # "W" = semanal terminando en domingo; "MS" = inicio de mes; "QS" = inicio de
 # trimestre. La agregacion OHLC es la estandar de finanzas (open=first,
 # high=max, low=min, close=last).
 _INTERVAL_TO_RULE = {"1w": "W", "1mo": "MS", "3mo": "QS"}
+
+
+def _to_frame(records):
+    """DataFrame ordenado por fecha e indexado por `date` (base de todo el modulo)."""
+    if not records:
+        raise ValueError("No hay datos de precios")
+    df = pd.DataFrame(records)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date").sort_index()
+
+
+def _to_series(records):
+    # Descartar filas con close=NaN antes de operar: si se cuela un NaN, se
+    # propaga por diff() y rolling().mean() y termina como value=NaN en el
+    # dict del indicador.
+    return _to_frame(records)["close"].dropna()
 
 
 def resample_records(records, interval):
@@ -34,11 +50,9 @@ def resample_records(records, interval):
     """
     if interval not in _INTERVAL_TO_RULE:
         return records
-    df = pd.DataFrame(records)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.set_index("date").sort_index()
     resampled = (
-        df.resample(_INTERVAL_TO_RULE[interval])
+        _to_frame(records)
+        .resample(_INTERVAL_TO_RULE[interval])
         .agg({"open": "first", "high": "max", "low": "min", "close": "last"})
         .dropna()
     )
@@ -54,14 +68,37 @@ def resample_records(records, interval):
     ]
 
 
-def _to_series(records):
-    df = pd.DataFrame(records)
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-    # Descartar filas con close=NaN antes de operar: si se cuela un NaN, se
-    # propaga por diff() y rolling().mean() y termina como value=NaN en el
-    # dict del indicador.
-    return df.set_index("date")["close"].dropna()
+# Series completas de cada indicador. Cada compute_* toma su ultimo valor y
+# compute_ma_series las entrega enteras al grafico, asi la formula vive una sola vez.
+
+def _ma_windows(n_rows, short_window, long_window):
+    """Ventanas de las medias moviles, reducidas si no hay historial suficiente."""
+    return min(short_window, max(2, n_rows // 2)), min(long_window, n_rows)
+
+
+def _rsi_series(close, window):
+    """RSI de Wilder: suavizado exponencial de ganancias y perdidas."""
+    delta = close.diff()
+    avg_gain = delta.clip(lower=0).ewm(com=window - 1, adjust=False).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(com=window - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    # Sin perdidas en la ventana (solo subidas): RSI = 100 por definicion
+    return rsi.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)
+
+
+def _macd_series(close, fast=12, slow=26, signal_period=9):
+    """(linea MACD, linea de senal, histograma)."""
+    macd_line = close.ewm(span=fast, adjust=False).mean() - close.ewm(span=slow, adjust=False).mean()
+    signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
+    return macd_line, signal_line, macd_line - signal_line
+
+
+def _bollinger_series(close, window, num_std=2.0):
+    """(banda media, superior, inferior)."""
+    middle = close.rolling(window=window).mean()
+    std = close.rolling(window=window).std()
+    return middle, middle + num_std * std, middle - num_std * std
 
 
 def compute_rsi(records, window: int = 14):
@@ -70,18 +107,7 @@ def compute_rsi(records, window: int = 14):
     if len(close) < window + 1:
         raise ValueError("No hay suficientes datos para calcular RSI")
 
-    delta = close.diff().dropna()
-    gains = delta.clip(lower=0)
-    losses = -delta.clip(upper=0)
-
-    avg_gain = gains.ewm(com=window - 1, adjust=False).mean()
-    avg_loss = losses.ewm(com=window - 1, adjust=False).mean()
-
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    # Sin perdidas en la ventana (solo subidas): RSI = 100 por definicion
-    rsi = rsi.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)
-    rsi_valid = rsi.dropna()
+    rsi_valid = _rsi_series(close, window).dropna()
     last_rsi = float(rsi_valid.iloc[-1]) if not rsi_valid.empty else 50.0
 
     # RF-04.2: categorias cualitativas segun umbrales oficiales
@@ -110,8 +136,7 @@ def compute_moving_averages(records, short_window: int = 50, long_window: int = 
     if len(close) < 5:
         raise ValueError("No hay suficientes datos para calcular medias moviles")
 
-    short_window = min(short_window, max(2, len(close) // 2))
-    long_window = min(long_window, len(close))
+    short_window, long_window = _ma_windows(len(close), short_window, long_window)
 
     sma_short = close.rolling(window=short_window).mean().iloc[-1]
     sma_long = close.rolling(window=long_window).mean().iloc[-1]
@@ -149,11 +174,7 @@ def compute_macd(records, fast: int = 12, slow: int = 26, signal_period: int = 9
     if len(close) < slow + signal_period:
         raise ValueError("No hay suficientes datos para calcular MACD")
 
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=signal_period, adjust=False).mean()
-    histogram = macd_line - signal_line
+    macd_line, signal_line, histogram = _macd_series(close, fast, slow, signal_period)
 
     last_macd = float(macd_line.iloc[-1])
     last_signal = float(signal_line.iloc[-1])
@@ -197,10 +218,7 @@ def compute_bollinger_bands(records, window: int = 20, num_std: float = 2.0):
     if len(close) < window:
         raise ValueError("No hay suficientes datos para calcular Bandas de Bollinger")
 
-    middle = close.rolling(window=window).mean()
-    std = close.rolling(window=window).std()
-    upper = middle + num_std * std
-    lower = middle - num_std * std
+    middle, upper, lower = _bollinger_series(close, window, num_std)
 
     last_close = float(close.iloc[-1])
     last_upper = float(upper.iloc[-1])
@@ -251,49 +269,22 @@ def compute_ma_series(records, short_window: int = 50, long_window: int = 200):
     overlay sobre el precio (Bollinger/MAs) o en subgraficos aparte
     (RSI/MACD, que tienen escala propia).
     """
-    df = pd.DataFrame(records)
-    if df.empty:
-        raise ValueError("No hay suficientes datos para construir el grafico")
-
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date").set_index("date")
+    df = _to_frame(records)
     close = df["close"]
 
-    short_window = min(short_window, max(2, len(close) // 2))
-    long_window = min(long_window, len(close))
-
+    short_window, long_window = _ma_windows(len(close), short_window, long_window)
     sma_short = close.rolling(window=short_window).mean()
     sma_long = close.rolling(window=long_window).mean()
 
-    # Bandas de Bollinger (overlay sobre precio): SMA(20) +/- 2*StdDev(20).
-    # Ventana reducida cuando la historia es muy corta para no dejar toda
+    # Ventanas reducidas cuando la historia es muy corta para no dejar toda
     # la serie en None.
     bb_window = min(20, max(2, len(close) // 3))
-    bb_middle = close.rolling(window=bb_window).mean()
-    bb_std = close.rolling(window=bb_window).std()
-    bb_upper = bb_middle + 2.0 * bb_std
-    bb_lower = bb_middle - 2.0 * bb_std
+    bb_middle, bb_upper, bb_lower = _bollinger_series(close, bb_window)
 
-    # RSI(14) de Wilder — misma formula que compute_rsi pero devolviendo la
-    # serie completa en vez de solo el ultimo punto.
     rsi_window = min(14, max(2, len(close) // 3))
-    delta = close.diff()
-    gains = delta.clip(lower=0)
-    losses = -delta.clip(upper=0)
-    avg_gain = gains.ewm(com=rsi_window - 1, adjust=False).mean()
-    avg_loss = losses.ewm(com=rsi_window - 1, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi_series = 100 - (100 / (1 + rs))
-    rsi_series = rsi_series.where(~((avg_loss == 0) & (avg_gain > 0)), 100.0)
+    rsi_series = _rsi_series(close, rsi_window)
 
-    # MACD estandar (12/26/9): fast EMA - slow EMA, senal EMA(9) sobre la
-    # linea, histograma = linea - senal. La serie completa alimenta al
-    # subgrafico del panel MACD.
-    ema_fast = close.ewm(span=12, adjust=False).mean()
-    ema_slow = close.ewm(span=26, adjust=False).mean()
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=9, adjust=False).mean()
-    macd_hist = macd_line - signal_line
+    macd_line, signal_line, macd_hist = _macd_series(close)
 
     def _to_list(series, digits=2):
         return [None if pd.isna(v) else round(float(v), digits) for v in series]
@@ -329,6 +320,9 @@ INDICATOR_FUNCTIONS = {
     "macd": compute_macd,
     "bandas_bollinger": compute_bollinger_bands,
 }
+
+
+INDICATOR_TYPES = tuple(INDICATOR_FUNCTIONS)
 
 
 def compute_indicator(indicator: str, records: list):

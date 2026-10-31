@@ -129,16 +129,10 @@ def _search_terms(inst: dict):
 
 
 def _cached(key, loader, ttl_seconds):
-    news_cache.ttl_seconds = ttl_seconds
-    cached = news_cache.get(key)
-    if cached is not None:
-        return cached
     try:
-        items = loader()
+        return news_cache.get_or_load(key, loader, ttl_seconds)
     except NewsSourceError:
         return []  # no se cachea: la proxima carga reintenta
-    news_cache.set(key, items)
-    return items
 
 
 def get_market_news(max_items: int = 5, cache_ttl_seconds: int = 20 * 60):

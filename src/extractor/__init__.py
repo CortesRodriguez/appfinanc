@@ -45,50 +45,59 @@ def _validate_inputs(days: int, indicator: str = None, interval: str = None, sym
         raise ExtractionError(f"Intervalo invalido: {interval}. Valores permitidos: {VALID_INTERVALS}")
 
 
-def _get_history(symbol: str, days: int, alpha_vantage_key: str, cache_ttl_seconds: int):
-    cache_key = (symbol, days)
-    price_history_cache.ttl_seconds = cache_ttl_seconds
-    history = price_history_cache.get(cache_key)
+def _get_history(symbol: str, alpha_vantage_key: str, cache_ttl_seconds: int):
+    """Historial completo (MAX_CHART_FETCH_DAYS) de `symbol`, descargado y cacheado una vez.
 
-    if history is None:
+    Grafico y tarjetas leen la misma descarga: pedir una por cada rango
+    multiplicaba las llamadas a Yahoo por instrumento.
+    """
+    def load():
         try:
-            history = fetch_price_history(symbol, days, alpha_vantage_key=alpha_vantage_key)
+            return fetch_price_history(symbol, MAX_CHART_FETCH_DAYS, alpha_vantage_key=alpha_vantage_key)
         except DataSourceError as exc:
             raise ExtractionError(
                 "No fue posible obtener datos del instrumento seleccionado. "
                 "Intenta nuevamente en unos minutos."
             ) from exc
-        price_history_cache.set(cache_key, history)
 
+    history = price_history_cache.get_or_load(symbol, load, cache_ttl_seconds)
     if not history["records"]:
         raise ExtractionError("No hay datos disponibles para el instrumento seleccionado.")
 
     return history
 
 
+def _compute(fn, *args):
+    """Ejecuta un calculo de indicadores convirtiendo su ValueError en error de negocio."""
+    try:
+        return fn(*args)
+    except ValueError as exc:
+        raise ExtractionError(str(exc)) from exc
+
+
+def _trace(history: dict):
+    """Trazabilidad RF-02.2: de que fuente y cuando salieron los datos."""
+    return {"source": history["source"], "extracted_at": history["fetched_at"]}
+
+
 def get_indicator(symbol: str, indicator: str, days: int = 90, alpha_vantage_key: str = "", cache_ttl_seconds: int = 300):
     """Extrae el historial de precios (con cache RNF-02.2) y calcula el indicador solicitado.
+
+    El indicador se calcula sobre todo el historial disponible, no solo sobre
+    `days`: RSI, MACD y medias moviles son indicadores definidos sobre una
+    historia larga (EMA/Wilder arrastran todo el pasado) y recortar la entrada
+    los distorsiona o, con 1M, impide calcular MACD. Asi coinciden con los del
+    grafico. `days` solo identifica el periodo elegido (period_days, historial).
 
     Retorna un dict con el valor del indicador, su nivel de riesgo, la
     fuente de datos utilizada y la marca de tiempo de extraccion
     (trazabilidad RF-02.2).
     """
     _validate_inputs(days, indicator, symbol=symbol)
-    history = _get_history(symbol, days, alpha_vantage_key, cache_ttl_seconds)
+    history = _get_history(symbol, alpha_vantage_key, cache_ttl_seconds)
 
-    try:
-        result = compute_indicator(indicator, history["records"])
-    except ValueError as exc:
-        raise ExtractionError(str(exc)) from exc
-
-    result.update(
-        {
-            "symbol": symbol,
-            "source": history["source"],
-            "extracted_at": history["fetched_at"],
-            "period_days": days,
-        }
-    )
+    result = _compute(compute_indicator, indicator, history["records"])
+    result.update({"symbol": symbol, **_trace(history), "period_days": days})
     return result
 
 
@@ -102,8 +111,8 @@ def get_price_series(
     """Serie de precios + medias moviles para el grafico de tendencia.
 
     - `days`: ventana temporal pedida por el usuario (1M/3M/6M/1A). El fetch
-      real es `CHART_BUFFER_FACTOR * days` (topeado en `MAX_CHART_FETCH_DAYS`)
-      para permitir pan al pasado.
+      real es siempre `MAX_CHART_FETCH_DAYS` para permitir pan al pasado;
+      `days` solo se devuelve como `visible_days` para anclar la vista inicial.
     - `interval`: granularidad de la vela (1d/1w/1mo/3mo). El extractor
       siempre baja datos diarios; para intervalos mayores se re-muestrean
       server-side con `resample_records`. Esto mantiene un solo path de
@@ -111,22 +120,17 @@ def get_price_series(
     """
     _validate_inputs(days, interval=interval, symbol=symbol)
     fetch_days = MAX_CHART_FETCH_DAYS
-    history = _get_history(symbol, fetch_days, alpha_vantage_key, cache_ttl_seconds)
+    history = _get_history(symbol, alpha_vantage_key, cache_ttl_seconds)
 
     records = history["records"]
     if interval != "1d":
         records = resample_records(records, interval)
 
-    try:
-        series = compute_ma_series(records)
-    except ValueError as exc:
-        raise ExtractionError(str(exc)) from exc
-
+    series = _compute(compute_ma_series, records)
     series.update(
         {
             "symbol": symbol,
-            "source": history["source"],
-            "extracted_at": history["fetched_at"],
+            **_trace(history),
             "visible_days": days,
             "fetched_days": fetch_days,
             "interval": interval,
@@ -136,25 +140,19 @@ def get_price_series(
 
 
 def get_quotes(symbols: list, cache_ttl_seconds: int = 300):
-    """Cotizaciones (precio + variacion diaria) para el listado del sidebar, cacheadas por lote."""
-    cache_key = tuple(sorted(symbols))
-    quotes_cache.ttl_seconds = cache_ttl_seconds
-    cached = quotes_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    """Cotizaciones (precio + variacion diaria) para el listado del sidebar, cacheadas por lote.
 
-    quotes = fetch_batch_quotes(symbols)
-    quotes_cache.set(cache_key, quotes)
-    return quotes
+    Un lote donde todo fallo no se cachea: la proxima carga reintenta en vez de
+    mostrar el sidebar vacio hasta que venza el TTL.
+    """
+    return quotes_cache.get_or_load(
+        tuple(sorted(symbols)),
+        lambda: fetch_batch_quotes(symbols),
+        cache_ttl_seconds,
+        cacheable=lambda quotes: any(quotes.values()),
+    )
 
 
 def get_macro_indicators(cache_ttl_seconds: int = 300):
     """UF, dolar, TPM e IPC (mindicador.cl), cacheados igual que las cotizaciones."""
-    macro_cache.ttl_seconds = cache_ttl_seconds
-    cached = macro_cache.get("macro")
-    if cached is not None:
-        return cached
-
-    data = fetch_macro_indicators()
-    macro_cache.set("macro", data)
-    return data
+    return macro_cache.get_or_load("macro", fetch_macro_indicators, cache_ttl_seconds, cacheable=bool)

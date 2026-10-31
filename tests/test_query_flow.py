@@ -134,14 +134,8 @@ def test_profile_regenerate_returns_502_when_source_fails(client, monkeypatch, a
     assert _log_count(app) == before
 
 
-def test_profile_regenerate_always_uses_a_180_day_window(client, monkeypatch):
-    requested = []
-
-    def spy(symbol, days, alpha_vantage_key=""):
-        requested.append(days)
-        return _fake_history(symbol, days, alpha_vantage_key)
-
-    _prepare(monkeypatch, spy)
+def test_profile_regenerate_always_uses_a_180_day_window(app, client, monkeypatch):
+    _prepare(monkeypatch)
     headers = _login(client, email="ventana@test.cl")
     first = client.post(
         "/api/query", json={"symbol": "SQM-B.SN", "indicator": "rsi", "days": 90}, headers=headers
@@ -151,8 +145,12 @@ def test_profile_regenerate_always_uses_a_180_day_window(client, monkeypatch):
         json={"symbol": "SQM-B.SN", "indicator": "rsi", "days": 90, "previous_variant": first["variant"]},
         headers=headers,
     )
-    requested.clear()
 
     assert client.post("/api/perfil/regenerar", headers=headers).status_code == 200
-    # La ventana del perfil es fija (decision de producto), distinta de la del dashboard (90).
-    assert requested == [180]
+
+    from src.profile.models import QueryLog
+
+    with app.app_context():
+        last = QueryLog.query.order_by(QueryLog.id.desc()).first()
+        # La ventana del perfil es fija (decision de producto), distinta de la del dashboard (90).
+        assert last.period_days == 180
