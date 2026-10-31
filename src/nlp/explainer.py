@@ -17,12 +17,13 @@ modelo falla, la senal cae silenciosamente a None (fallback silencioso,
 coherente con la tolerancia a fallos de RNF-09).
 """
 
+import logging
 import os
 
 from .readability import fernandez_huerta_score
 
 from .levels import DEFAULT_LEVEL, LEVELS, contains_forbidden_term, level_max_words
-from .templates import NATIONAL_REFERENCES, STYLE_LABELS, TEMPLATES  # noqa: F401 - API publica
+from .templates import NATIONAL_REFERENCES, NATIONAL_REFERENCES_BASICO, STYLE_LABELS, TEMPLATES  # noqa: F401 - API publica
 
 # Tope absoluto; cada nivel tiene el suyo, mas bajo (levels.LEVELS[nivel]["max_words"]).
 MAX_WORDS = 150
@@ -70,6 +71,31 @@ _LLANO = {
 }
 
 _DIR = {"alcista": "hacia arriba", "bajista": "hacia abajo"}
+
+# Lectura de la tarjeta, en una frase y sin jerga. RSI y Bollinger reutilizan _LLANO (el sujeto cambia
+# porque una frase es un verbo y la otra un lugar); MACD y medias moviles no tienen version "llano" en las
+# plantillas, asi que su frase vive aqui.
+_CARD_SUBJECT = {"rsi": "El precio {}.", "bandas_bollinger": "El precio está {}."}
+_CARD_READING = {
+    "macd": {
+        "alcista": "El precio viene empujando hacia arriba.",
+        "bajista": "El precio viene empujando hacia abajo.",
+    },
+    "medias_moviles": {
+        "alcista": "El precio de los últimos meses está sobre el de más largo plazo.",
+        "bajista": "El precio de los últimos meses está bajo el de más largo plazo.",
+    },
+}
+
+
+def plain_reading(data: dict) -> str:
+    """Que dice el indicador, en una frase sin jerga (se muestra bajo el numero de la tarjeta)."""
+    indicator = data.get("indicator", "")
+    key = _reading_key(data)
+    if indicator in _CARD_READING:
+        return _CARD_READING[indicator].get(key, "")
+    phrase = _LLANO.get(indicator, {}).get(key, "")
+    return _CARD_SUBJECT[indicator].format(phrase) if phrase and indicator in _CARD_SUBJECT else ""
 
 
 def _reading_key(data: dict) -> str:
@@ -220,11 +246,72 @@ def _finbert_signal(text: str):
         return None
 
 
-def _is_coherent(indicator_data: dict, text: str) -> bool:
-    # Import tardio: validator.py importa RISK_LABELS de este modulo.
-    from .validator import validate_coherence
+# Origen del texto de una explicacion (se guarda en query_logs.explanation_source).
+SOURCE_LLM = "llm"
+SOURCE_TEMPLATE = "plantilla"
 
-    return validate_coherence(indicator_data, text)[0]
+# Por que una explicacion salio de plantilla (query_logs.fallback_reason). Los tres primeros
+# no son fallos del LLM: no se intento. Los demas son los motivos del script medir_llm.py.
+REASON_DISABLED = "desactivado"  # USE_LLM=false
+REASON_NO_KEY = "sin_clave"  # USE_LLM=true pero no hay GROQ_API_KEY
+REASON_API_ERROR = "error_api"  # Groq fallo (red, cuota, clave invalida, respuesta vacia)
+REASON_INTERNAL = "error_interno"  # excepcion inesperada en nuestro codigo (se registra con traza)
+
+logger = logging.getLogger(__name__)
+
+
+def llm_rejection_reason(indicator_data: dict, detail_level: str, text: str):
+    """Motivo por el que el texto del LLM no se puede mostrar, o None si pasa todas las verificaciones.
+
+    Una sola secuencia para la aplicacion y para scripts/medir_llm.py, que clasifica con ella.
+    """
+    # Import tardio: validator.py importa RISK_LABELS de este modulo.
+    from .validator import cites_risk_label, cites_value, validate_coherence
+
+    if not RISK_LABELS.get(indicator_data["risk_level"]) or not cites_risk_label(indicator_data, text):
+        return "sin_etiqueta_riesgo"
+    if not cites_value(indicator_data, text):
+        return "sin_valor"
+    if contains_forbidden_term(detail_level, text):
+        return "termino_prohibido"
+    if not validate_coherence(indicator_data, text)[0]:
+        return "incoherente"
+    return None
+
+
+def _try_llm(indicator_data, variant, detail_level, display_name, api_key, max_words):
+    """Pide el texto al LLM. Devuelve (texto, None) si se puede mostrar o (None, motivo) si no."""
+    from .llm_explainer import LLMError, generate_explanation_llm
+
+    name = display_name or indicator_data.get("symbol", "").replace(".SN", "")
+    try:
+        text = generate_explanation_llm(indicator_data, name, detail_level, api_key, variant=variant)
+    except LLMError as exc:
+        # Solo el tipo y el codigo HTTP: el mensaje de la API podria traer fragmentos de la clave.
+        cause = exc.__cause__
+        logger.warning("LLM no disponible (%s, http %s)", type(cause or exc).__name__, getattr(cause, "status_code", None))
+        return None, REASON_API_ERROR
+    # Se verifica DESPUES de recortar: el recorte no debe quitar el riesgo ni el valor.
+    text = _trim_to_max_words(text, max_words)
+    reason = llm_rejection_reason(indicator_data, detail_level, text)
+    if reason:
+        logger.info("Texto del LLM descartado (%s)", reason)
+        return None, reason
+    return text, None
+
+
+def _explanation(text, indicator_data, variant, detail_level, use_finbert, source, fallback_reason=None):
+    finbert_input = _build_finbert_input(indicator_data) if use_finbert else None
+    return {
+        "text": text,
+        "risk_level": indicator_data["risk_level"],
+        "variant": variant,
+        "readability_score": fernandez_huerta_score(text),
+        "finbert_signal": _finbert_signal(finbert_input) if finbert_input else None,
+        "detail_level": detail_level,
+        "source": source,
+        "fallback_reason": fallback_reason,
+    }
 
 
 def generate_explanation(
@@ -248,80 +335,46 @@ def generate_explanation(
     `display_name` reemplaza el ticker en las plantillas por el nombre de la
     empresa (ej. "Banco de Chile" en vez de "CHILE.SN").
     `use_llm=True` intenta generar la explicacion con un LLM via Groq antes de
-    recurrir a las plantillas. Degradacion silenciosa si falla (RNF-09).
+    recurrir a las plantillas (RNF-09).
+
+    El resultado dice de donde salio el texto: `source` ("llm" | "plantilla") y, si fue
+    plantilla, `fallback_reason` (por que no se uso el LLM).
     """
     indicator = indicator_data["indicator"]
     risk_level = indicator_data["risk_level"]
     detail_level = _normalize_level(detail_level)
     max_words = level_max_words(detail_level)
 
-    # Intento LLM (degradacion silenciosa a plantillas si falla o incoherente)
-    if use_llm and llm_api_key:
+    if not use_llm:
+        reason = REASON_DISABLED
+    elif not llm_api_key:
+        reason = REASON_NO_KEY
+    else:
         try:
-            from .llm_explainer import generate_explanation_llm
-            _name = display_name or indicator_data.get("symbol", "").replace(".SN", "")
-            llm_text = generate_explanation_llm(indicator_data, _name, detail_level, llm_api_key, variant=variant)
-            # Verificacion: el texto debe contener el risk_label y el valor numerico,
-            # respetar el vocabulario del nivel (el basico no admite jerga) y pasar el
-            # validador de coherencia (que detecta, p. ej., "15.0" donde el valor es 5.0 o
-            # "sobrecomprado" con RSI bajo). Si falla, se usan las plantillas.
-            # Se verifica DESPUES de recortar: el recorte no debe quitar el riesgo ni el valor.
-            _risk_label = RISK_LABELS.get(risk_level, "")
-            _val_str = str(indicator_data.get("value", ""))
-            llm_text = _trim_to_max_words(llm_text, max_words)
-            if (
-                _risk_label
-                and _risk_label in llm_text.lower()
-                and _val_str in llm_text
-                and not contains_forbidden_term(detail_level, llm_text)
-                and _is_coherent(indicator_data, llm_text)
-            ):
-                readability = fernandez_huerta_score(llm_text)
-                finbert_input = _build_finbert_input(indicator_data) if use_finbert else None
-                finbert_signal = _finbert_signal(finbert_input) if finbert_input else None
-                return {
-                    "text": llm_text,
-                    "risk_level": risk_level,
-                    "variant": variant,
-                    "readability_score": readability,
-                    "finbert_signal": finbert_signal,
-                    "detail_level": detail_level,
-                }
-        except Exception:  # noqa: BLE001 - degradacion silenciosa por diseno
-            pass
+            llm_text, reason = _try_llm(indicator_data, variant, detail_level, display_name, llm_api_key, max_words)
+        except Exception:  # noqa: BLE001 - un fallo inesperado del LLM nunca debe tumbar la consulta (RNF-09)
+            logger.exception("Error inesperado al generar con el LLM")
+            llm_text, reason = None, REASON_INTERNAL
+        if llm_text is not None:
+            return _explanation(llm_text, indicator_data, variant, detail_level, use_finbert, SOURCE_LLM)
 
     pool = TEMPLATES[detail_level][indicator][risk_level]
     template = pool[variant % len(pool)]
     text = _fill_template(template, indicator_data, display_name=display_name)
 
     if include_national_reference and LEVELS[detail_level]["ipsa"] and indicator in NATIONAL_REFERENCES:
-        refs = NATIONAL_REFERENCES[indicator]
+        refs = (NATIONAL_REFERENCES_BASICO if detail_level == "basico" else NATIONAL_REFERENCES)[indicator]
         text = f"{text} {refs[variant % len(refs)]}"
 
     text = _trim_to_max_words(text, max_words)
-
-    finbert_input = _build_finbert_input(indicator_data) if use_finbert else None
-    finbert_signal = _finbert_signal(finbert_input) if finbert_input else None
-    readability = fernandez_huerta_score(text)
-
-    return {
-        "text": text,
-        "risk_level": risk_level,
-        "variant": variant,
-        "readability_score": readability,
-        "finbert_signal": finbert_signal,
-        "detail_level": detail_level,
-    }
+    return _explanation(text, indicator_data, variant, detail_level, use_finbert, SOURCE_TEMPLATE, reason)
 
 
 def regenerate_explanation(indicator_data: dict, previous_variant: int, use_finbert: bool = True, detail_level: str = DEFAULT_LEVEL, display_name: str = "", use_llm: bool = False, llm_api_key: str = ""):
     """Genera una redaccion alternativa distinta a la anterior (RF-06.2, CU-13)."""
-    indicator = indicator_data["indicator"]
-    risk_level = indicator_data["risk_level"]
-    pool_size = len(TEMPLATES[_normalize_level(detail_level)][indicator][risk_level])
-
-    if pool_size <= 1:
-        return generate_explanation(indicator_data, variant=previous_variant, use_finbert=use_finbert, detail_level=detail_level, display_name=display_name, use_llm=use_llm, llm_api_key=llm_api_key)
-
-    next_variant = (previous_variant + 1) % pool_size
-    return generate_explanation(indicator_data, variant=next_variant, use_finbert=use_finbert, detail_level=detail_level, display_name=display_name, use_llm=use_llm, llm_api_key=llm_api_key)
+    pool_size = len(TEMPLATES[_normalize_level(detail_level)][indicator_data["indicator"]][indicator_data["risk_level"]])
+    variant = (previous_variant + 1) % pool_size if pool_size > 1 else previous_variant
+    return generate_explanation(
+        indicator_data, variant=variant, use_finbert=use_finbert, detail_level=detail_level,
+        display_name=display_name, use_llm=use_llm, llm_api_key=llm_api_key,
+    )

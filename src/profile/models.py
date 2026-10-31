@@ -37,6 +37,11 @@ class QueryLog(db.Model):
     risk_level = db.Column(db.String(10), nullable=True)
     period_days = db.Column(db.Integer, nullable=True)
 
+    # De donde salio el texto: "llm" o "plantilla"; si fue plantilla, por que no se uso el LLM.
+    # Nullable: las filas anteriores a la migracion 0006 no lo registraron.
+    explanation_source = db.Column(db.String(10), nullable=True)
+    fallback_reason = db.Column(db.String(20), nullable=True)
+
 
 class InstrumentVisit(db.Model):
     """Una fila por instrumento seleccionado en el dashboard (RF-19.2, RF-19.3).

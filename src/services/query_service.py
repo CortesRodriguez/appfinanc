@@ -91,6 +91,8 @@ def log_and_validate(session_id, symbol, indicator, indicator_data, explanation,
             unit=indicator_data.get("unit"),
             risk_level=indicator_data.get("risk_level"),
             period_days=indicator_data.get("period_days"),
+            explanation_source=explanation.get("source"),
+            fallback_reason=explanation.get("fallback_reason"),
         )
     )
     db.session.commit()

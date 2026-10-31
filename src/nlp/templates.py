@@ -30,6 +30,14 @@ NATIONAL_REFERENCES = {
     "bandas_bollinger": ["Contrástalo con el IPSA en las mismas fechas, pues el mercado chileno tiene poco volumen."],
 }
 
+# Nivel basico: quien nunca ha invertido no sabe que es el IPSA, asi que la primera mencion lo explica.
+NATIONAL_REFERENCES_BASICO = {
+    "rsi": ["Conviene mirarlo junto al IPSA (el índice de las mayores acciones de Chile), para no sacar conclusiones con una sola acción."],
+    "medias_moviles": ["Compáralo con el IPSA (el índice de las mayores acciones de Chile): así ves si es propio de la acción o de todo el mercado."],
+    "macd": ["Revisa también el IPSA (el índice de las mayores acciones de Chile) en las mismas fechas: sirve para saber si el impulso es propio o de todo el mercado."],
+    "bandas_bollinger": ["Contrástalo con el IPSA (el índice de las mayores acciones de Chile) en las mismas fechas, pues el mercado chileno tiene poco volumen."],
+}
+
 _BASICO = {
     "rsi": {
         "bajo": [
@@ -50,19 +58,19 @@ _BASICO = {
     },
     "medias_moviles": {
         "bajo": [
-            "Las medias móviles de {symbol} muestran que el precio va {dir}: {value}% de diferencia entre el promedio de los últimos días y el de semanas atrás ({risk_label}). Es un movimiento moderado.",
-            "Si comparas el precio promedio reciente de {symbol} con el de semanas atrás, el precio va {dir}: {value}% de diferencia ({risk_label}). Un movimiento moderado.",
-            "Las medias móviles muestran el precio promedio de los últimos días frente al de semanas atrás, para ver hacia dónde va. En {symbol} va {dir}, con {value}% de diferencia ({risk_label}): un movimiento moderado que ya se nota.",
+            "Las medias móviles de {symbol} muestran que el precio va {dir}: {value}% de diferencia entre el promedio de los últimos meses y el de casi un año ({risk_label}). Es un movimiento moderado.",
+            "Si comparas el precio promedio de los últimos meses de {symbol} con el de casi un año, el precio va {dir}: {value}% de diferencia ({risk_label}). Un movimiento moderado.",
+            "Las medias móviles muestran el precio promedio de los últimos meses frente al de casi un año, para ver hacia dónde va. En {symbol} va {dir}, con {value}% de diferencia ({risk_label}): un movimiento moderado que ya se nota.",
         ],
         "medio": [
             "Las medias móviles de {symbol} apenas se separan: {value}% ({risk_label}). El precio no toma una dirección clara.",
-            "Si comparas el precio promedio reciente de {symbol} con el de semanas atrás, casi no hay diferencia: {value}% ({risk_label}). El precio va sin rumbo claro.",
-            "Las medias móviles muestran el precio promedio de los últimos días frente al de semanas atrás. En {symbol} casi no hay diferencia: {value}% ({risk_label}), así que el precio no muestra una dirección definida.",
+            "Si comparas el precio promedio de los últimos meses de {symbol} con el de casi un año, casi no hay diferencia: {value}% ({risk_label}). El precio va sin rumbo claro.",
+            "Las medias móviles muestran el precio promedio de los últimos meses frente al de casi un año. En {symbol} casi no hay diferencia: {value}% ({risk_label}), así que el precio no muestra una dirección definida.",
         ],
         "alto": [
             "Las medias móviles de {symbol} muestran un movimiento fuerte {dir}: {value}% de diferencia ({risk_label}). El precio viene con mucho impulso.",
-            "Si comparas el precio promedio reciente de {symbol} con el de semanas atrás, la diferencia es grande: {value}% ({risk_label}). El precio va claramente {dir}.",
-            "Las medias móviles muestran el precio promedio de los últimos días frente al de semanas atrás. En {symbol} la diferencia es grande: {value}% ({risk_label}), y el precio va {dir} con fuerza.",
+            "Si comparas el precio promedio de los últimos meses de {symbol} con el de casi un año, la diferencia es grande: {value}% ({risk_label}). El precio va claramente {dir}.",
+            "Las medias móviles muestran el precio promedio de los últimos meses frente al de casi un año. En {symbol} la diferencia es grande: {value}% ({risk_label}), y el precio va {dir} con fuerza.",
         ],
     },
     "macd": {

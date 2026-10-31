@@ -69,12 +69,13 @@ class Config:
 
     ALPHAVANTAGE_API_KEY = os.environ.get("ALPHAVANTAGE_API_KEY", "")
 
-    # LLM generativo (Groq / qwen/qwen3.8-27b): cuando USE_LLM=true y
-    # GROQ_API_KEY está configurado, las explicaciones se generan en tiempo real
-    # con un modelo de lenguaje en lugar de plantillas predefinidas. Degradación
-    # silenciosa a plantillas si falla (RNF-09).
+    # LLM generativo (Groq / qwen/qwen3.8-27b): activo por defecto. Con GROQ_API_KEY
+    # las explicaciones se generan en tiempo real con un modelo de lenguaje; sin clave,
+    # o si el LLM falla o su texto no pasa las verificaciones, se usan plantillas (RNF-09).
+    # Cada consulta guarda de donde salio el texto (query_logs.explanation_source).
+    # USE_LLM=false fuerza las plantillas.
     GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-    USE_LLM = os.environ.get("USE_LLM", "false").lower().strip(".").strip() == "true"
+    USE_LLM = os.environ.get("USE_LLM", "true").lower().strip(".").strip() == "true"
 
     # RF-04.1: FinBERT es opcional y solo aporta la etiqueta de sentimiento; el
     # texto lo redacta el LLM o las plantillas. Desactivado por defecto porque
