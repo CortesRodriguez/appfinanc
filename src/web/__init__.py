@@ -6,6 +6,40 @@ from config import Config
 from src.extensions import bcrypt, db, jwt, migrate, oauth
 
 
+def _register_error_handlers(app):
+    """Las rutas /api/* responden siempre JSON, tambien cuando algo falla.
+
+    Sin esto, una excepcion no prevista devuelve una pagina HTML de error y el
+    navegador la intenta leer como JSON ("Unexpected token '<'"), que no le dice
+    nada a quien usa la app. Las paginas normales conservan su respuesta HTML.
+    """
+    from flask import jsonify, request
+    from werkzeug.exceptions import HTTPException
+
+    messages = {
+        404: "No encontramos lo que buscas.",
+        405: "Esa acción no está permitida.",
+        429: "Hiciste muchas solicitudes seguidas. Espera un momento e inténtalo de nuevo.",
+    }
+
+    @app.errorhandler(Exception)
+    def _json_errors_for_api(exc):
+        if not request.path.startswith("/api/"):
+            if isinstance(exc, HTTPException):
+                return exc
+            raise exc
+        if isinstance(exc, HTTPException):
+            status = exc.code or 500
+            message = messages.get(status, exc.description if status < 500 else None)
+        else:
+            from src.extensions import db
+
+            db.session.rollback()
+            app.logger.exception("Error no controlado en %s", request.path)
+            status, message = 500, None
+        return jsonify({"error": message or "Algo salió mal de nuestro lado. Inténtalo de nuevo en unos minutos."}), status
+
+
 def create_app(config_object=Config):
     app = Flask(__name__)
     app.config.from_object(config_object)
@@ -46,6 +80,8 @@ def create_app(config_object=Config):
             "current_user": current_user,
             "google_oauth_enabled": bool(app.config.get("GOOGLE_CLIENT_ID")),
         }
+
+    _register_error_handlers(app)
 
     from . import routes
     from src.auth import routes as auth_routes

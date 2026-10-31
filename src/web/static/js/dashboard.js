@@ -49,7 +49,7 @@
     sma_long: false,
     bollinger: false,
     rsi: false,
-    macd: true,
+    macd: false,
   };
 
   const summaryLoading = document.getElementById("summary-loading");
@@ -57,10 +57,23 @@
 
   const indicatorsLoading = document.getElementById("indicators-loading");
   const indicatorsError = document.getElementById("indicators-error");
-  const indicatorGrid = document.getElementById("indicator-grid");
-  const explainPanel = document.getElementById("explain-panel");
+  const modal = document.getElementById("indicator-modal");
+  const modalDialog = document.getElementById("indicator-window");
+  const modalHead = document.getElementById("indicator-modal-head");
+  const modalGrip = document.getElementById("indicator-modal-grip");
+  const modalTitle = document.getElementById("indicator-modal-title");
+  const modalBody = document.getElementById("indicator-modal-body");
+  const modalClose = document.getElementById("indicator-modal-close");
   const LEVEL_NAMES = { basico: "Básico", intermedio: "Intermedio", avanzado: "Avanzado" };
-  let activeKey = null; // indicador cuya explicacion esta abierta en el panel
+  let activeKey = null; // indicador cuyo recuadro esta abierto
+  // Sin cuenta, el nivel lo elige la persona con "Mas simple / Mas tecnico". Con cuenta lo decide el
+  // servidor segun su perfil (RF-13.2), asi que este valor no se envia.
+  const GUEST_LEVELS = ["basico", "intermedio", "avanzado"];
+  let guestLevel = "intermedio";
+  try {
+    const saved = window.localStorage.getItem("norte.guestLevel");
+    if (GUEST_LEVELS.includes(saved)) guestLevel = saved;
+  } catch (err) { /* sin almacenamiento: se usa el nivel por defecto */ }
 
   const periodButtons = document.querySelectorAll(".period-btn");
   const periodLabelEl = document.getElementById("chart-period-label");
@@ -72,7 +85,7 @@
   let current = null; // {symbol, name, sector, type, price, daily_change_pct}
   let selectedDays = 180;
   let selectedInterval = "1d";
-  let selectedChartType = "candlestick";
+  let selectedChartType = "line";
   const cardState = {}; // indicator key -> {variant, days}
   // Estado de la sidebar: solo orden. Chips de ganadoras/perdedoras se
   // sacaron por decision de diseno — la usuaria queria maxima densidad y
@@ -345,6 +358,20 @@
     renderMoverList(downEl, movers.down);
     renderMoverNews(movers);
   }
+
+  // Guia de 3 pasos: se muestra hasta que la persona la cierra (queda recordado en este navegador).
+  (function initHowTo() {
+    const box = document.getElementById("howto");
+    const close = document.getElementById("howto-close");
+    if (!box || !close) return;
+    let seen = false;
+    try { seen = window.localStorage.getItem("norte.howtoClosed") === "1"; } catch (err) { /* sin almacenamiento: se muestra */ }
+    if (seen) box.classList.add("hidden");
+    close.addEventListener("click", () => {
+      box.classList.add("hidden");
+      try { window.localStorage.setItem("norte.howtoClosed", "1"); } catch (err) { /* opcional */ }
+    });
+  })();
 
   const landingDate = document.getElementById("landing-date");
   if (landingDate) {
@@ -692,6 +719,7 @@
     syncTimeRangeFromMain();
     // Alinea escalas despues de que los subs se hayan pintado con datos.
     requestAnimationFrame(alignPriceScales);
+    refreshChartButton();
   }
 
   function applyRsiData(series) {
@@ -1052,8 +1080,8 @@
 
     const legendShort = document.getElementById("legend-ma-short");
     const legendLong = document.getElementById("legend-ma-long");
-    if (legendShort && series.short_window) legendShort.textContent = `MA${series.short_window}`;
-    if (legendLong && series.long_window) legendLong.textContent = `MA${series.long_window}`;
+    if (legendShort && series.short_window) legendShort.textContent = `Promedio de ${series.short_window} días`;
+    if (legendLong && series.long_window) legendLong.textContent = `Promedio de ${series.long_window} días`;
 
     lastChartSeries = series;
     applyIndicatorVisibility();
@@ -1157,48 +1185,36 @@
     return `${data.value}%`;
   }
 
-  function renderCard(meta, data) {
-    let card = document.querySelector(`.indicator-card[data-indicator="${meta.key}"]`);
-    if (!card) {
-      card = document.createElement("article");
-      card.className = "indicator-card card";
-      card.dataset.indicator = meta.key;
-      indicatorGrid.appendChild(card);
-    }
-
-    const signal = signalBadge(meta.key, data);
-    const risk = riskBadge(data);
-
-    // La card solo muestra valor + badges + boton; la explicacion se muestra
-    // en el panel de debajo (ver renderPanel). La trazabilidad de RF-02.2
-    // (fuente, fecha, indicador literal) vive en el Historial del perfil.
-    card.innerHTML = `
-      <div class="indicator-card-header">
-        <span class="indicator-title">${meta.title}</span>
-        <div class="badge-row">
-          <span class="badge ${signal.cls}">${signal.text}</span>
-          ${risk ? `<span class="badge badge-risk ${risk.cls}">${risk.text}</span>` : ""}
-        </div>
-      </div>
-      <div class="indicator-value">${formatIndicatorValue(meta.key, data)}</div>
-      <div class="indicator-sub">${meta.sub}</div>
-      <button type="button" class="explain-cta" aria-controls="explain-panel" aria-expanded="false"></button>
-    `;
-
-    card.querySelector(".explain-cta").addEventListener("click", () => selectIndicator(meta));
-    updateCardButtons();
+  // El boton "i" de cada fila del menu "Indicadores" abre el recuadro con la explicacion de ese indicador.
+  // Se enlazan una sola vez: existen desde que carga la pagina (aunque el menu este cerrado).
+  function bindExplainButtons() {
+    document.querySelectorAll("[data-explain-indicator]").forEach((el) => {
+      const meta = window.APP_INDICATORS.find((m) => m.key === el.dataset.explainIndicator);
+      if (!meta) return;
+      el.addEventListener("click", () => openIndicatorModal(meta, el));
+    });
   }
-
 
   // Fetch ligero: solo valor + badge + trazabilidad, sin explicacion ni log.
   // Se usa en el fetch inicial al hacer click en una accion (RF-02.2/CU-03:
   // cada QueryLog representa una consulta deliberada del usuario, no un batch).
+  // Lee la respuesta como JSON; si el servidor devolvio otra cosa (p. ej. una
+  // pagina de error), lanza un mensaje comprensible en vez de "Unexpected token '<'".
+  async function readJson(response) {
+    const fallback = "No pudimos obtener el dato en este momento. Inténtalo de nuevo en unos minutos.";
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (err) {
+      throw new Error(fallback);
+    }
+    if (!response.ok) throw new Error((data && data.error) || fallback);
+    return data;
+  }
+
   async function fetchValue(symbol, indicatorKey, days) {
     const url = `${window.APP_ENDPOINTS.indicatorValue}?symbol=${encodeURIComponent(symbol)}&indicator=${encodeURIComponent(indicatorKey)}&days=${days}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "No fue posible obtener el indicador.");
-    return data;
+    return readJson(await fetch(url));
   }
 
   // Fetch completo: golpea /api/query (o /api/regenerate si variant>0),
@@ -1209,39 +1225,13 @@
     const body = variant > 0
       ? { symbol, indicator: indicatorKey, days, previous_variant: variant - 1 }
       : { symbol, indicator: indicatorKey, days };
+    if (!window.APP_LOGGED_IN) body.detail_level = guestLevel;
 
-    const response = await fetch(endpoint, {
+    return readJson(await fetch(endpoint, {
       method: "POST",
       headers: csrfHeaders(),
       body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "No fue posible obtener el indicador.");
-    return data;
-  }
-
-  // ---- Panel de explicacion (debajo de las cards) ----
-  // Las cards solo muestran valor + badges + boton. La explicacion, la escala
-  // visual y las acciones viven en un unico panel ancho que cambia segun el
-  // indicador activo (`activeKey`). Pedir la explicacion de un indicador ya
-  // visto reabre el panel sin escribir otra fila en `query_logs`.
-  function ctaLabel(key) {
-    if (activeKey === key) return "Viendo explicación";
-    const known = lastIndicatorData[key];
-    return known && known.explanation ? "Ver explicación" : "Ver explicación en simple";
-  }
-
-  function updateCardButtons() {
-    document.querySelectorAll(".indicator-card").forEach((card) => {
-      const key = card.dataset.indicator;
-      const on = key === activeKey;
-      card.classList.toggle("is-active", on);
-      const btn = card.querySelector(".explain-cta");
-      if (!btn) return;
-      btn.classList.toggle("is-active", on);
-      btn.setAttribute("aria-expanded", on ? "true" : "false");
-      btn.textContent = ctaLabel(key);
-    });
+    }));
   }
 
   // Escala visual del valor (solo RSI y %B, que tienen un rango con zonas).
@@ -1295,123 +1285,344 @@
       </div>`;
   }
 
-  function revealPanel() {
-    explainPanel.classList.remove("hidden");
-    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    requestAnimationFrame(() => {
-      explainPanel.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" });
-    });
-  }
+  // ---- Recuadro de un indicador ----
+  // Orden: 1) que es el indicador (texto fijo, aparece al instante), 2) que dice hoy para esta accion
+  // (valor ya cargado) y 3) la explicacion en simple (LLM o plantilla). Pedir la explicacion de un
+  // indicador ya visto reutiliza la que esta cargada y no escribe otra fila en `query_logs`.
+  const INDICATOR_INFO = {
+    medias_moviles: "Un promedio del precio de los últimos días. Se comparan dos: uno de pocos meses y otro más largo. Si el corto va por encima del largo, el precio viene subiendo; si va por debajo, viene bajando.",
+    rsi: "Un número de 0 a 100 que resume si el precio subió o bajó muy rápido hace poco. Un número muy alto significa que casi todo el movimiento reciente fue hacia arriba; uno muy bajo, hacia abajo.",
+    macd: "Mide si el precio está ganando o perdiendo fuerza en su movimiento. Compara dos promedios del precio, uno rápido y uno lento: cuanto más se separan, más fuerte es el empuje, hacia arriba o hacia abajo.",
+    bandas_bollinger: "Marcan el rango dentro del que suele moverse el precio. El número (%B) dice en qué parte de ese rango está hoy: cerca de 0 es la parte baja, cerca de 1 la parte alta.",
+  };
+  // Que control del grafico corresponde a cada indicador (claves de indicatorVisibility).
+  const CHART_TOGGLES = {
+    medias_moviles: ["sma_short", "sma_long"],
+    rsi: ["rsi"],
+    macd: ["macd"],
+    bandas_bollinger: ["bollinger"],
+  };
+
+  let modalReturnFocus = null;
+  // Promesa de la carga de valores de la accion actual: el nombre de un indicador puede tocarse antes de que lleguen.
+  let valuesReady = Promise.resolve();
 
   function panelTitle(meta) {
     const name = (current && (current.name || current.symbol.replace(".SN", ""))) || "";
     return `${meta.title} · ${name}`;
   }
 
-  function showPanelLoading(meta) {
-    explainPanel.classList.remove("is-loading");
-    explainPanel.innerHTML = `
-      <div class="explain-panel-head">
-        <div class="explain-panel-title">
-          <span class="badge-label">EXPLICACIÓN EN SIMPLE</span>
-          <h3 class="explain-panel-name"></h3>
-        </div>
-      </div>
-      <div class="loading"><span class="spinner"></span> Generando explicación…</div>`;
-    explainPanel.querySelector(".explain-panel-name").textContent = panelTitle(meta);
+  function isOnChart(key) {
+    return (CHART_TOGGLES[key] || []).every((t) => indicatorVisibility[t]);
   }
 
-  function renderPanel(meta, data) {
-    const level = data.detail_level || "intermedio";
+  // Enciende o apaga el indicador en el grafico y sincroniza las casillas del menu "Indicadores".
+  function setOnChart(key, on) {
+    (CHART_TOGGLES[key] || []).forEach((t) => {
+      indicatorVisibility[t] = on;
+      const cb = document.querySelector(`[data-indicator-toggle="${t}"]`);
+      if (cb) cb.checked = on;
+    });
+    applyIndicatorVisibility();
+  }
+
+  // RSI y MACD viven en un panel bajo el grafico, que puede quedar fuera de la pantalla: se acerca a la vista.
+  const CHART_PANELS = { rsi: "rsi-panel", macd: "macd-panel" };
+  function revealOnChart(key) {
+    const panel = CHART_PANELS[key] && document.getElementById(CHART_PANELS[key]);
+    if (!panel || !panel.scrollIntoView) return;
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    panel.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "nearest" }); // "nearest": no mueve nada si ya se ve
+  }
+
+  const CHART_BTN_ON = "Dejar de mostrar en el gráfico";
+  const CHART_BTN_OFF = "Mostrar en el gráfico";
+
+  // Mantiene el texto del boton de la ventana al dia, sea quien sea el que encendio o apago el indicador
+  // (el propio boton o la casilla del menu "Indicadores").
+  function refreshChartButton() {
+    if (!activeKey) return;
+    const btn = modalBody.querySelector(".chart-show-btn");
+    if (!btn) return;
+    const on = isOnChart(activeKey);
+    btn.textContent = on ? CHART_BTN_ON : CHART_BTN_OFF;
+    btn.classList.toggle("is-on", on);
+  }
+
+  // "Mas simple / Mas tecnico": solo para visitantes. Con cuenta, el nivel se adapta solo (RF-13.2).
+  function renderLevelPicker(level) {
+    if (window.APP_LOGGED_IN) return "";
+    const i = GUEST_LEVELS.indexOf(level);
+    const simpler = i > 0 ? GUEST_LEVELS[i - 1] : null;
+    const technical = i < GUEST_LEVELS.length - 1 ? GUEST_LEVELS[i + 1] : null;
+    const btn = (target, label) => target
+      ? `<button type="button" class="level-btn" data-level="${target}">${label}</button>`
+      : `<span class="level-btn is-off" aria-disabled="true">${label}</span>`;
+    return `<div class="level-picker" role="group" aria-label="Nivel de la explicación">
+      ${btn(simpler, "← Más simple")}${btn(technical, "Más técnico →")}
+    </div>`;
+  }
+
+  // Bloque "Que dice hoy": numero, etiquetas, frase en palabras y escala. Solo usa el valor ya cargado.
+  function todayBlock(meta, data, level) {
+    if (data.value === undefined) {
+      return `<section class="modal-section"><h3 class="modal-section-title">Qué dice hoy</h3>
+        <div class="loading"><span class="spinner"></span> Cargando el dato…</div></section>`;
+    }
     const signal = signalBadge(meta.key, data);
     const risk = riskBadge(data);
+    return `
+      <section class="modal-section" aria-labelledby="modal-today-title">
+        <h3 class="modal-section-title" id="modal-today-title">Qué dice hoy para <span class="modal-stock"></span></h3>
+        <div class="modal-today">
+          <span class="modal-value">${formatIndicatorValue(meta.key, data)}</span>
+          <div class="badge-row">
+            <span class="badge ${signal.cls}">${signal.text}</span>
+            ${risk ? `<span class="badge badge-risk ${risk.cls}">${risk.text}</span>` : ""}
+          </div>
+        </div>
+        <p class="modal-reading"></p>
+        ${renderScale(meta.key, data, level)}
+      </section>`;
+  }
+
+  function chartFooter(meta) {
+    const on = isOnChart(meta.key);
+    return `<button type="button" class="chart-show-btn${on ? " is-on" : ""}">${on ? CHART_BTN_ON : CHART_BTN_OFF}</button>`;
+  }
+
+  // Dibuja el recuadro. `data.explanation` puede faltar: entonces el tercer bloque muestra "Generando…".
+  function renderModal(meta, data, { loading = false } = {}) {
+    const level = data.detail_level || guestLevel || "intermedio";
     const levelName = LEVEL_NAMES[level] || level;
-    explainPanel.classList.remove("is-loading");
-    explainPanel.innerHTML = `
-      <div class="explain-panel-head">
-        <div class="explain-panel-title">
-          <span class="badge-label">EXPLICACIÓN EN SIMPLE</span>
-          <h3 class="explain-panel-name"></h3>
+    const hasText = Boolean(data.explanation);
+    modalTitle.textContent = meta.title;
+    modalBody.innerHTML = `
+      <section class="modal-section" aria-labelledby="modal-what-title">
+        <h3 class="modal-section-title" id="modal-what-title">Qué es</h3>
+        <p class="modal-what"></p>
+      </section>
+      ${todayBlock(meta, data, level)}
+      <section class="modal-section" aria-labelledby="modal-explain-title">
+        <div class="modal-explain-head">
+          <h3 class="modal-section-title" id="modal-explain-title">Explicación en simple</h3>
+          ${hasText ? `<a class="detail-tag ${level}" href="${window.APP_ENDPOINTS.profile}" title="Cambiar mi nivel en Mi perfil">Nivel ${levelName}</a>` : ""}
         </div>
-        <div class="badge-row">
-          <span class="badge ${signal.cls}">${signal.text}</span>
-          ${risk ? `<span class="badge badge-risk ${risk.cls}">${risk.text}</span>` : ""}
+        ${hasText ? renderLevelPicker(level) : ""}
+        ${hasText
+          ? '<p class="explain-text"></p>'
+          : '<div class="loading"><span class="spinner"></span> Generando explicación…</div>'}
+        <div class="explain-meta">
+          ${hasText ? renderFinbertBadge(data.finbert_signal) : ""}
+          ${hasText && data.coherent === false ? '<span class="warn">Este texto podría no coincidir con el dato. Guíate por el número y la escala.</span>' : ""}
         </div>
-        <a class="detail-tag ${level}" href="${window.APP_ENDPOINTS.profile}" title="Cambiar mi nivel en Mi perfil">Nivel ${levelName}</a>
-        <button type="button" class="panel-close" aria-label="Cerrar explicación">×</button>
-      </div>
-      <p class="explain-text"></p>
-      ${renderScale(meta.key, data, level)}
-      <div class="explain-meta">
-        ${renderFinbertBadge(data.finbert_signal)}
-        ${data.coherent === false ? '<span class="warn">Marcado para revisión de coherencia.</span>' : ""}
-      </div>
-      <div class="explain-actions">
-        <button type="button" class="link-btn regen-btn">No entendí esto</button>
-        <button type="button" class="link-btn done-btn">Entendido</button>
-      </div>`;
-    explainPanel.querySelector(".explain-panel-name").textContent = panelTitle(meta);
-    explainPanel.querySelector(".explain-text").textContent = data.explanation;
-    explainPanel.querySelector(".regen-btn").addEventListener("click", () => regenerateCard(meta));
-    explainPanel.querySelector(".done-btn").addEventListener("click", closePanel);
-    explainPanel.querySelector(".panel-close").addEventListener("click", closePanel);
+        <p class="edu-note">El riesgo indica qué tan extrema es la lectura del indicador, no la probabilidad de perder dinero. Información educativa; no es una recomendación de inversión.</p>
+        <div class="explain-actions">
+          ${hasText ? '<button type="button" class="link-btn regen-btn">No entendí esto</button>' : ""}
+          <button type="button" class="link-btn done-btn">Entendido</button>
+          ${chartFooter(meta)}
+        </div>
+      </section>`;
+    // textContent en todo lo que viene del servidor o de un modelo: nunca se interpreta como HTML.
+    modalBody.querySelector(".modal-what").textContent = INDICATOR_INFO[meta.key] || "";
+    // Si el dato aun no llega, el bloque "Que dice hoy" es un aviso de carga y no trae estos elementos.
+    const stock = modalBody.querySelector(".modal-stock");
+    if (stock) stock.textContent = (current && (current.name || current.symbol.replace(".SN", ""))) || "";
+    const reading = modalBody.querySelector(".modal-reading");
+    if (reading) reading.textContent = data.reading || "";
+    if (hasText) modalBody.querySelector(".explain-text").textContent = data.explanation;
+    modalBody.classList.toggle("is-loading", loading);
+
+    modalBody.querySelectorAll(".level-btn[data-level]").forEach((b) =>
+      b.addEventListener("click", () => changeGuestLevel(meta, b.dataset.level)));
+    const regen = modalBody.querySelector(".regen-btn");
+    if (regen) regen.addEventListener("click", () => regenerateCard(meta));
+    modalBody.querySelector(".done-btn").addEventListener("click", closeIndicatorModal);
+    modalBody.querySelector(".chart-show-btn").addEventListener("click", () => {
+      const turnOn = !isOnChart(meta.key);
+      setOnChart(meta.key, turnOn);
+      if (turnOn) revealOnChart(meta.key);
+    });
   }
 
-  function closePanel() {
-    const key = activeKey;
-    activeKey = null;
-    explainPanel.classList.add("hidden");
-    explainPanel.classList.remove("is-loading");
-    explainPanel.innerHTML = "";
-    updateCardButtons();
-    const btn = key && document.querySelector(`.indicator-card[data-indicator="${key}"] .explain-cta`);
-    if (btn) btn.focus({ preventScroll: true });
+  function closeChartMenus() {
+    document.querySelectorAll(".ctrl-wrap").forEach((w) => {
+      w.classList.remove("open");
+      w.querySelector(".ctrl-btn")?.setAttribute("aria-expanded", "false");
+    });
   }
 
-  // Handler del boton de la card: abre el panel de ese indicador (o lo cierra
-  // si ya era el activo). Solo la primera vez pide /api/query, que es la unica
-  // llamada que escribe log; despues reutiliza la explicacion ya cargada.
-  async function selectIndicator(meta) {
+  async function openIndicatorModal(meta, trigger) {
     if (!current) return;
-    if (activeKey === meta.key) {
-      closePanel();
-      return;
-    }
+    closeChartMenus();
     indicatorsError.classList.add("hidden");
+    // Tocar la "i" tambien lo muestra en el grafico (se puede quitar desde la ventana).
+    if (!isOnChart(meta.key)) {
+      setOnChart(meta.key, true);
+      revealOnChart(meta.key);
+    }
+    const menuButton = trigger && trigger.closest && trigger.closest("#ctrl-indicators") ? document.querySelector("#ctrl-indicators .ctrl-btn") : null;
+    modalReturnFocus = menuButton || trigger || null;
     activeKey = meta.key;
-    updateCardButtons();
+    let known = lastIndicatorData[meta.key];
+    renderModal(meta, known || {}, { loading: !(known && known.explanation) });
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    placeWindow();
+    modalDialog.focus({ preventScroll: true });
 
-    const known = lastIndicatorData[meta.key];
-    if (known && known.explanation) {
-      renderPanel(meta, known);
-      revealPanel();
+    if (!known) {
+      // Aun no llegan los valores de esta accion: "Qué es" ya se ve; el dato aparece al llegar.
+      await valuesReady;
+      if (activeKey !== meta.key) return; // se cerro o se cambio de accion mientras tanto
+      known = lastIndicatorData[meta.key];
+      if (!known) { closeIndicatorModal(); return; } // loadIndicators ya mostro el error
+      renderModal(meta, known, { loading: true });
+    }
+    if (!known.explanation) loadExplanation(meta);
+  }
+
+  function closeIndicatorModal() {
+    activeKey = null;
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    modalBody.innerHTML = "";
+    if (modalReturnFocus && document.contains(modalReturnFocus)) modalReturnFocus.focus({ preventScroll: true });
+    modalReturnFocus = null;
+  }
+
+  // ---- Ventana flotante: se arrastra para poder leer y mirar el grafico a la vez ----
+  // No es modal: no oscurece la pagina, no atrapa el foco y un clic afuera NO la cierra. Se cierra con la X,
+  // con "Entendido" o con Esc.
+  const WINDOW_POS_KEY = "norte.windowPos";
+  const compactQuery = window.matchMedia ? window.matchMedia("(max-width: 600px)") : null;
+  const isCompact = () => Boolean(compactQuery && compactQuery.matches);
+  let windowPos = null; // {x, y} de la esquina superior izquierda; null = posicion por defecto (abajo a la derecha)
+  let drag = null;
+
+  // Mantiene la ventana dentro de la pantalla. La barra de titulo siempre queda a la vista, para poder volver a moverla.
+  function clampPosition(x, y, width, height, viewW, viewH, headH) {
+    const maxX = Math.max(0, viewW - width);
+    const maxY = Math.max(0, viewH - headH);
+    return { x: Math.min(Math.max(0, x), maxX), y: Math.min(Math.max(0, y), maxY) };
+  }
+
+  function loadWindowPos() {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(WINDOW_POS_KEY) || "null");
+      if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) return { x: raw.x, y: raw.y };
+    } catch (err) { /* sin almacenamiento o dato invalido: posicion por defecto */ }
+    return null;
+  }
+
+  function saveWindowPos() {
+    try { window.localStorage.setItem(WINDOW_POS_KEY, JSON.stringify(windowPos)); } catch (err) { /* opcional */ }
+  }
+
+  function placeWindow() {
+    const style = modalDialog.style;
+    if (isCompact() || !windowPos) {
+      style.left = style.top = style.right = style.bottom = ""; // vuelve a la posicion del CSS
       return;
     }
+    const rect = modalDialog.getBoundingClientRect();
+    const headH = modalHead.getBoundingClientRect().height || 44;
+    windowPos = clampPosition(windowPos.x, windowPos.y, rect.width, rect.height, window.innerWidth, window.innerHeight, headH);
+    style.left = `${windowPos.x}px`;
+    style.top = `${windowPos.y}px`;
+    style.right = "auto";
+    style.bottom = "auto";
+  }
 
+  modalHead.addEventListener("pointerdown", (e) => {
+    if (isCompact() || (e.button !== undefined && e.button !== 0)) return;
+    if (e.target.closest && e.target.closest(".indicator-modal-close")) return; // la X no inicia un arrastre
+    const rect = modalDialog.getBoundingClientRect();
+    drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top, id: e.pointerId };
+    if (modalHead.setPointerCapture) modalHead.setPointerCapture(e.pointerId);
+    modalDialog.classList.add("is-dragging");
+    e.preventDefault();
+  });
+  modalHead.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    windowPos = { x: e.clientX - drag.dx, y: e.clientY - drag.dy };
+    placeWindow();
+  });
+  function endDrag() {
+    if (!drag) return;
+    drag = null;
+    modalDialog.classList.remove("is-dragging");
+    saveWindowPos();
+  }
+  modalHead.addEventListener("pointerup", endDrag);
+  modalHead.addEventListener("pointercancel", endDrag);
+
+  // Con el teclado: flechas (24 px; con Mayus, 96 px) cuando el agarre tiene el foco.
+  modalGrip.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 96 : 24;
+    const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (!delta || isCompact()) return;
+    e.preventDefault();
+    const rect = modalDialog.getBoundingClientRect();
+    const from = windowPos || { x: rect.left, y: rect.top };
+    windowPos = { x: from.x + delta[0], y: from.y + delta[1] };
+    placeWindow();
+    saveWindowPos();
+  });
+
+  window.addEventListener("resize", () => { if (!modal.classList.contains("hidden")) placeWindow(); });
+  windowPos = loadWindowPos();
+
+  modalClose.addEventListener("click", closeIndicatorModal);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) closeIndicatorModal();
+  });
+
+  // Pide la explicacion la primera vez (la unica llamada que escribe en query_logs).
+  async function loadExplanation(meta) {
     const state = cardState[meta.key];
-    const card = document.querySelector(`.indicator-card[data-indicator="${meta.key}"]`);
-    showPanelLoading(meta);
-    revealPanel();
-    if (card) card.classList.add("card-loading");
-
     try {
       const data = await fetchExplanation(current.symbol, meta.key, state.days, 0);
-      if (cardState[meta.key] !== state) return; // se cargo otro instrumento/periodo
+      if (cardState[meta.key] !== state) return; // se cargo otra accion u otro periodo
       // El servidor puede partir en la redaccion preferida del usuario (RF-13.2):
       // el contador local debe seguirla para que "No entendí esto" rote desde ahi.
       state.variant = data.variant || 0;
-      lastIndicatorData[meta.key] = data;
+      lastIndicatorData[meta.key] = { ...lastIndicatorData[meta.key], ...data };
       composeSummary();
-      if (activeKey === meta.key) renderPanel(meta, data);
-      updateCardButtons();
+      if (activeKey === meta.key) renderModal(meta, lastIndicatorData[meta.key]);
     } catch (err) {
-      if (cardState[meta.key] === state) {
-        if (activeKey === meta.key) closePanel();
+      if (cardState[meta.key] === state && activeKey === meta.key) {
+        closeIndicatorModal();
         indicatorsError.textContent = err.message;
         indicatorsError.classList.remove("hidden");
       }
+    }
+  }
+
+  async function changeGuestLevel(meta, level) {
+    if (!GUEST_LEVELS.includes(level)) return;
+    guestLevel = level;
+    try { window.localStorage.setItem("norte.guestLevel", level); } catch (err) { /* opcional */ }
+    // Las demas explicaciones ya cargadas quedaron en el nivel anterior: se vuelven a pedir al abrirlas.
+    Object.keys(lastIndicatorData).forEach((k) => { delete lastIndicatorData[k].explanation; });
+    const state = cardState[meta.key];
+    modalBody.classList.add("is-loading");
+    try {
+      const data = await fetchExplanation(current.symbol, meta.key, state.days, 0);
+      if (cardState[meta.key] !== state) return;
+      state.variant = data.variant || 0;
+      lastIndicatorData[meta.key] = { ...lastIndicatorData[meta.key], ...data };
+      composeSummary();
+      if (activeKey === meta.key) {
+        renderModal(meta, lastIndicatorData[meta.key]);
+        const picked = modalBody.querySelector(`.level-btn[data-level="${level}"]`) || modalBody.querySelector(".level-btn");
+        if (picked) picked.focus({ preventScroll: true });
+      }
+    } catch (err) {
+      indicatorsError.textContent = err.message;
+      indicatorsError.classList.remove("hidden");
     } finally {
-      if (card) card.classList.remove("card-loading");
+      modalBody.classList.remove("is-loading");
     }
   }
 
@@ -1419,16 +1630,16 @@
     if (!current) return;
     const state = cardState[meta.key];
     state.variant += 1;
-    explainPanel.classList.add("is-loading");
+    modalBody.classList.add("is-loading");
 
     try {
       const data = await fetchExplanation(current.symbol, meta.key, state.days, state.variant);
       if (cardState[meta.key] !== state) return;
-      lastIndicatorData[meta.key] = data;
+      lastIndicatorData[meta.key] = { ...lastIndicatorData[meta.key], ...data };
       composeSummary();
       if (activeKey === meta.key) {
-        renderPanel(meta, data);
-        const regen = explainPanel.querySelector(".regen-btn");
+        renderModal(meta, lastIndicatorData[meta.key]);
+        const regen = modalBody.querySelector(".regen-btn");
         if (regen) regen.focus({ preventScroll: true });
       }
     } catch (err) {
@@ -1436,7 +1647,7 @@
       indicatorsError.textContent = err.message;
       indicatorsError.classList.remove("hidden");
     } finally {
-      explainPanel.classList.remove("is-loading");
+      modalBody.classList.remove("is-loading");
     }
   }
 
@@ -1472,14 +1683,14 @@
       const zona = extremos.includes("sobrecomprado") && extremos.includes("sobrevendido")
         ? "con señales de extremo en direcciones opuestas"
         : extremos[0] === "sobrecomprado"
-        ? "y el precio está en una zona alta, donde suele haber más riesgo de retroceso"
-        : "y el precio está en una zona baja, donde a veces aparece un rebote";
+        ? "y el precio está en una zona alta de su rango reciente"
+        : "y el precio está en una zona baja de su rango reciente";
       lectura += lectura.endsWith("divididas") ? `, ${zona}.` : ` ${zona}.`;
     }
     const parts = [
       `${name} es una ${kind}${sector} que se transa en la Bolsa de Santiago.`,
       lectura,
-      "Abre cada indicador para ver qué significa en simple.",
+      "Activa un indicador en el menú «Indicadores» del gráfico y toca su nombre para entenderlo.",
     ];
     summaryText.textContent = parts.join(" ");
   }
@@ -1488,11 +1699,10 @@
     indicatorsError.classList.add("hidden");
     indicatorsLoading.classList.remove("hidden");
     summaryLoading.classList.remove("hidden");
-    indicatorGrid.innerHTML = "";
     summaryText.textContent = "";
+    // Cambiar de accion o de periodo invalida lo que el recuadro estaba mostrando: se cierra.
+    if (!modal.classList.contains("hidden")) closeIndicatorModal();
     activeKey = null;
-    explainPanel.classList.add("hidden");
-    explainPanel.innerHTML = "";
     Object.keys(lastIndicatorData).forEach((k) => delete lastIndicatorData[k]);
 
     window.APP_INDICATORS.forEach((meta) => {
@@ -1502,16 +1712,15 @@
     try {
       // Fetch inicial ligero: valores + trazabilidad, sin explicaciones ni
       // escritura en `query_logs`. La explicacion (y su fila de log) se
-      // genera cuando la usuaria pulsa "Ver explicacion en simple" en cada
-      // card. Este split le da semantica real a RF-02.2 / CU-03: cada log
-      // corresponde a una consulta deliberada, no a un batch.
+      // genera cuando la persona abre el recuadro de un indicador. Este split
+      // le da semantica real a RF-02.2 / CU-03: cada log corresponde a una
+      // consulta deliberada, no a un batch.
       const results = await Promise.all(
         window.APP_INDICATORS.map((meta) => fetchValue(symbol, meta.key, days))
       );
       window.APP_INDICATORS.forEach((meta, idx) => {
         const data = results[idx];
-        lastIndicatorData[meta.key] = data;
-        renderCard(meta, data); // sin `explanation` => modo valor-only
+        lastIndicatorData[meta.key] = data; // sin `explanation` => modo valor-only
       });
       composeSummary();
     } catch (err) {
@@ -1536,7 +1745,7 @@
     viewChange.className = `change-badge change ${changeClass(inst.daily_change_pct)}`;
 
     loadChart(inst.symbol, selectedDays);
-    loadIndicators(inst.symbol, selectedDays);
+    valuesReady = loadIndicators(inst.symbol, selectedDays);
     logVisit(inst.symbol);
   }
 
@@ -1555,7 +1764,7 @@
 
       if (current) {
         loadChart(current.symbol, selectedDays);
-        loadIndicators(current.symbol, selectedDays);
+        valuesReady = loadIndicators(current.symbol, selectedDays);
       }
     });
   });
@@ -1580,8 +1789,12 @@
       }
     });
   });
-  document.addEventListener("click", () => {
+  // Un clic fuera cierra los menus. Un clic DENTRO del menu "Indicadores" lo deja abierto, para poder marcar y
+  // desmarcar varios sin que se cierre cada vez.
+  document.addEventListener("click", (e) => {
+    const inIndicators = Boolean(e.target && e.target.closest && e.target.closest("#dropdown-indicators"));
     document.querySelectorAll(".ctrl-wrap").forEach((w) => {
+      if (inIndicators && w.id === "ctrl-indicators") return;
       w.classList.remove("open");
       w.querySelector(".ctrl-btn")?.setAttribute("aria-expanded", "false");
     });
@@ -1659,6 +1872,7 @@
     });
   });
 
+  bindExplainButtons();
   loadQuotes();
 })();
 

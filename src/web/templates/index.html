@@ -5,7 +5,7 @@
 <div class="dashboard">
   <aside class="sidebar">
     <div class="sidebar-sticky">
-      <input type="search" id="instrument-search" class="sidebar-search" placeholder="Buscar acción o ticker…" aria-label="Buscar instrumento">
+      <input type="search" id="instrument-search" class="sidebar-search" placeholder="Buscar acción por nombre o código…" aria-label="Buscar instrumento">
       <div id="lookup-hint" class="hidden"></div>
       <div class="sidebar-sort">
         <span class="sidebar-count"><span id="sidebar-count-num">30</span> acciones</span>
@@ -31,15 +31,28 @@
         <span class="landing-date" id="landing-date"></span>
       </header>
 
+      <aside class="card howto" id="howto" aria-labelledby="howto-title">
+        <div class="howto-head">
+          <h2 class="panel-title" id="howto-title">Cómo usar Norte en 3 pasos</h2>
+          <button type="button" class="panel-close" id="howto-close" aria-label="Ocultar la guía">×</button>
+        </div>
+        <ol class="howto-steps">
+          <li><strong>Elige una acción.</strong> Una acción es una parte pequeña de una empresa. Búscala en la lista o toca una de las más movidas de hoy.</li>
+          <li><strong>Lee el resumen.</strong> Te dice en una frase hacia dónde viene el precio y si está en una zona normal.</li>
+          <li><strong>Abre el menú «Indicadores» del gráfico.</strong> Toca la <em>i</em> junto a uno: se muestra en el gráfico y se abre una ventana, que puedes mover, con qué es y qué dice hoy. Desde ahí puedes quitarlo o volver a mostrarlo. Si algo no se entiende, toca <em>No entendí esto</em>.</li>
+        </ol>
+        <p class="meta">¿Una palabra rara? Búscala en el <a href="{{ url_for('web.glossary_page') }}">Glosario</a>.</p>
+      </aside>
+
       <div class="landing-grid">
         <section class="card panel" aria-labelledby="movers-up-title">
           <h2 class="panel-title" id="movers-up-title">Mayores alzas del día</h2>
-          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Var.</span></div>
+          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Cambio hoy</span></div>
           <ul class="mover-list" id="movers-up"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
         </section>
         <section class="card panel" aria-labelledby="movers-down-title">
           <h2 class="panel-title" id="movers-down-title">Mayores bajas del día</h2>
-          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Var.</span></div>
+          <div class="mover-head" aria-hidden="true"><span>Acción</span><span>30 días</span><span>Precio</span><span>Cambio hoy</span></div>
           <ul class="mover-list" id="movers-down"><li class="skeleton-row"></li><li class="skeleton-row"></li><li class="skeleton-row"></li></ul>
           <p class="meta panel-note">Variación diaria según la última cotización disponible.</p>
         </section>
@@ -81,11 +94,11 @@
 
       <section class="card chart-card">
         <div class="chart-card-header">
-          <div class="period-selector" role="group" aria-label="Rango temporal">
-            <button type="button" class="period-btn" data-days="30">1M</button>
-            <button type="button" class="period-btn" data-days="90">3M</button>
-            <button type="button" class="period-btn active" data-days="180">6M</button>
-            <button type="button" class="period-btn" data-days="365">1A</button>
+          <div class="period-selector" role="group" aria-label="Rango temporal" title="Cuánto tiempo hacia atrás mostrar">
+            <button type="button" class="period-btn" data-days="30" title="Últimos 1 mes">1M</button>
+            <button type="button" class="period-btn" data-days="90" title="Últimos 3 meses">3M</button>
+            <button type="button" class="period-btn active" data-days="180" title="Últimos 6 meses">6M</button>
+            <button type="button" class="period-btn" data-days="365" title="Últimos 1 año">1A</button>
           </div>
           <h2 class="visually-hidden">Tendencia · <span id="chart-period-label">6 meses</span></h2>
           <div class="chart-ctrls">
@@ -94,11 +107,12 @@
               <button class="ctrl-btn" title="Indicadores" aria-expanded="false" aria-label="Indicadores">Indicadores <span class="ctrl-chevron">▾</span></button>
               <div class="ctrl-dropdown" id="dropdown-indicators">
                 <div class="ctrl-dropdown-title">Indicadores</div>
-                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_short"> <span id="legend-ma-short">MA corta</span></label>
-                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_long"> <span id="legend-ma-long">MA larga</span></label>
-                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="bollinger"> Bollinger</label>
-                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="rsi"> RSI</label>
-                <label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="macd" checked> MACD</label>
+                <p class="ctrl-hint">Marca los que quieras ver. Toca <b>i</b> para entender uno: también lo muestra en el gráfico.</p>
+                <div class="ctrl-row"><label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_short"> <span id="legend-ma-short">Promedio corto</span></label><button type="button" class="info-dot" data-explain-indicator="medias_moviles" aria-haspopup="dialog" aria-label="Qué es las medias móviles" title="Qué es las medias móviles">i</button></div>
+                <div class="ctrl-row"><label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="sma_long"> <span id="legend-ma-long">Promedio largo</span></label><button type="button" class="info-dot" data-explain-indicator="medias_moviles" aria-haspopup="dialog" aria-label="Qué es las medias móviles" title="Qué es las medias móviles">i</button></div>
+                <div class="ctrl-row"><label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="bollinger"> Bollinger</label><button type="button" class="info-dot" data-explain-indicator="bandas_bollinger" aria-haspopup="dialog" aria-label="Qué es las bandas de Bollinger" title="Qué es las bandas de Bollinger">i</button></div>
+                <div class="ctrl-row"><label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="rsi"> RSI</label><button type="button" class="info-dot" data-explain-indicator="rsi" aria-haspopup="dialog" aria-label="Qué es el RSI" title="Qué es el RSI">i</button></div>
+                <div class="ctrl-row"><label class="ctrl-chk"><input type="checkbox" data-indicator-toggle="macd"> MACD</label><button type="button" class="info-dot" data-explain-indicator="macd" aria-haspopup="dialog" aria-label="Qué es el MACD" title="Qué es el MACD">i</button></div>
               </div>
             </div>
 
@@ -114,11 +128,11 @@
             </div>
 
             <div class="ctrl-wrap" id="ctrl-charttype">
-              <button class="ctrl-btn" id="ctrl-charttype-btn" title="Tipo de gráfico" aria-expanded="false" aria-label="Tipo de gráfico">Velas <span class="ctrl-chevron">▾</span></button>
+              <button class="ctrl-btn" id="ctrl-charttype-btn" title="Tipo de gráfico" aria-expanded="false" aria-label="Tipo de gráfico">Línea <span class="ctrl-chevron">▾</span></button>
               <div class="ctrl-dropdown" id="dropdown-charttype">
                 <div class="ctrl-dropdown-title">Tipo de gráfico</div>
-                <button class="ctrl-radio active" data-chart-type="candlestick">Velas</button>
-                <button class="ctrl-radio" data-chart-type="line">Línea</button>
+                <button class="ctrl-radio" data-chart-type="candlestick">Velas</button>
+                <button class="ctrl-radio active" data-chart-type="line">Línea</button>
                 <button class="ctrl-radio" data-chart-type="area">Montaña</button>
               </div>
             </div>
@@ -127,7 +141,7 @@
         </div>
         <div id="chart-loading" class="loading hidden"><span class="spinner"></span> Cargando gráfico…</div>
         <div class="chart-container">
-          <div id="price-chart" role="img" aria-label="Gráfico de velas de precio"></div>
+          <div id="price-chart" role="img" aria-label="Gráfico de la evolución del precio"></div>
           <div id="price-legend" class="chart-overlay hidden">
             <div class="overlay-price-row">
               <b class="ov-close-big" id="ov-c">—</b>
@@ -135,9 +149,9 @@
             </div>
             <div class="overlay-line overlay-title"><span id="ov-symbol"></span> · <span id="ov-date">—</span></div>
             <div class="overlay-line overlay-ohlc">
-              <span>A <b id="ov-o">—</b></span>
-              <span>M <b id="ov-h">—</b></span>
-              <span>m <b id="ov-l">—</b></span>
+              <span>Apert. <b id="ov-o">—</b></span>
+              <span>Máx. <b id="ov-h">—</b></span>
+              <span>Mín. <b id="ov-l">—</b></span>
             </div>
             <div class="overlay-line overlay-ma hidden" id="ov-ma-line">
               <span class="ov-ma-item hidden" id="ov-ma-short-wrap"><i class="dot ma-short"></i>MA<span id="ov-ma-short-w"></span> <b id="ov-ma-short">—</b></span>
@@ -158,7 +172,7 @@
             </div>
           </div>
         </div>
-        <div id="macd-panel" class="sub-chart-panel">
+        <div id="macd-panel" class="sub-chart-panel hidden">
           <div class="sub-chart-header">
             <span class="sub-chart-title">MACD (12, 26, 9)</span>
           </div>
@@ -180,14 +194,24 @@
         </div>
         <div id="summary-loading" class="loading hidden"><span class="spinner"></span> Generando resumen…</div>
         <p id="summary-text"></p>
+        <p class="edu-note">Información educativa. No es una recomendación de inversión.</p>
       </section>
 
-      <section class="indicator-grid" id="indicator-grid"></section>
-      <section class="card explain-panel hidden" id="explain-panel" tabindex="-1" role="region" aria-label="Explicación en simple" aria-live="polite"></section>
       <div id="indicators-loading" class="loading hidden"><span class="spinner"></span> Calculando indicadores…</div>
       <div id="indicators-error" class="error hidden" role="alert"></div>
     </div>
   </main>
+</div>
+
+<div class="indicator-window-layer hidden" id="indicator-modal" aria-hidden="true">
+  <div class="indicator-window" id="indicator-window" role="dialog" aria-labelledby="indicator-modal-title" tabindex="-1">
+    <div class="indicator-window-head" id="indicator-modal-head">
+      <button type="button" class="indicator-window-grip" id="indicator-modal-grip" aria-label="Mover la ventana (flechas del teclado)" title="Arrastra para mover. Con el teclado, usa las flechas.">⠿</button>
+      <h2 class="indicator-modal-title" id="indicator-modal-title"></h2>
+      <button type="button" class="indicator-modal-close" id="indicator-modal-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="indicator-modal-body" id="indicator-modal-body" aria-live="polite"></div>
+  </div>
 </div>
 {% endblock %}
 
@@ -205,6 +229,7 @@
     logVisit: "{{ url_for('web.api_log_visit') }}",
     profile: "{{ url_for('profile.profile_page') }}"
   };
+  window.APP_LOGGED_IN = {{ 'true' if current_user else 'false' }};
   window.APP_INDICATORS = [
     {"key": "medias_moviles", "title": "Medias móviles", "sub": "MA corta vs MA larga"},
     {"key": "rsi", "title": "RSI", "sub": "fuerza relativa · 0–100"},

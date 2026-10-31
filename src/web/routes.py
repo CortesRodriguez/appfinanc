@@ -11,7 +11,8 @@ from src.constants import INDICATOR_LABELS
 from src.extensions import db
 from src.extractor import MAX_SYMBOL_LENGTH, ExtractionError, VALID_PERIODS, get_company_news, get_macro_indicators, get_market_news, get_price_series, get_quotes
 from src.nlp.glossary import list_terms, search_terms
-from src.nlp.levels import DEFAULT_LEVEL
+from src.nlp.explainer import plain_reading
+from src.nlp.levels import DEFAULT_LEVEL, LEVELS
 from src.profile.models import InstrumentVisit
 from src.profile.service import get_detail_level, preferred_variant, recent_visits
 from src.services.query_service import fetch_indicator, get_session_id, has_value, log_and_validate, run_query
@@ -308,6 +309,20 @@ def api_log_visit():
     return jsonify({"ok": True})
 
 
+def _guest_level(payload: dict, user_id):
+    """Nivel que eligio un visitante con el selector "Mas simple / Mas tecnico", o None.
+
+    Con cuenta manda el nivel del perfil (RF-13.2), asi que ahi se ignora. Un valor que no es
+    un nivel se rechaza siempre, para no aceptar texto libre en un campo que gobierna el prompt.
+    """
+    requested = payload.get("detail_level")
+    if requested is None:
+        return None
+    if not isinstance(requested, str) or requested not in LEVELS:
+        raise ValueError(requested)
+    return None if user_id else requested
+
+
 @bp.route("/api/query", methods=["POST"])
 def api_query():
     payload = request.get_json(silent=True) or {}
@@ -317,7 +332,11 @@ def api_query():
 
     session_id = get_session_id()
     user_id = _current_user_id()
-    detail_level = get_detail_level(user_id, indicator) if user_id else DEFAULT_LEVEL
+    try:
+        guest_level = _guest_level(payload, user_id)
+    except ValueError:
+        return jsonify({"error": "Nivel de explicación inválido."}), 400
+    detail_level = get_detail_level(user_id, indicator) if user_id else (guest_level or DEFAULT_LEVEL)
     # RF-13.2: la consulta parte en la redaccion en la que este usuario suele quedarse.
     variant = (preferred_variant(user_id, indicator) or 0) if user_id else 0
 
@@ -349,6 +368,7 @@ def api_query():
             "coherent": coherent,
             "readability_score": explanation["readability_score"],
             "finbert_signal": explanation.get("finbert_signal"),
+            "explanation_source": explanation.get("source"),
             "trend": indicator_data.get("trend"),
             "signal": indicator_data.get("signal"),
         }
@@ -368,7 +388,11 @@ def api_regenerate():
 
     session_id = get_session_id()
     user_id = _current_user_id()
-    detail_level = get_detail_level(user_id, indicator) if user_id else DEFAULT_LEVEL
+    try:
+        guest_level = _guest_level(payload, user_id)
+    except ValueError:
+        return jsonify({"error": "Nivel de explicación inválido."}), 400
+    detail_level = get_detail_level(user_id, indicator) if user_id else (guest_level or DEFAULT_LEVEL)
 
     try:
         indicator_data, explanation, elapsed_ms = run_query(
@@ -397,6 +421,7 @@ def api_regenerate():
             "detail_level": explanation["detail_level"],
             "coherent": coherent,
             "finbert_signal": explanation.get("finbert_signal"),
+            "explanation_source": explanation.get("source"),
             "unchanged": same_as_before,  # Excepcion 1 de CU-04
         }
     )
@@ -448,6 +473,8 @@ def api_indicator_value():
             "period_days": data["period_days"],
             "trend": data.get("trend"),
             "signal": data.get("signal"),
+            "reading": plain_reading(data),
+            "detail_level": get_detail_level(_current_user_id(), indicator),
         }
     )
 
